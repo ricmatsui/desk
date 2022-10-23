@@ -4,9 +4,12 @@ import supervisor
 import time
 import usb_cdc
 import displayio
+import adafruit_display_text.bitmap_label
+import adafruit_display_text.label
 import adafruit_display_text as display_text
 import terminalio
 import adafruit_fancyled.adafruit_fancyled as fancy
+import vectorio
 
 macropad = MacroPad()
 
@@ -102,6 +105,7 @@ green = fancy.CRGB(0.0, 1.0, 0.0)
 red = fancy.CRGB(1.0, 0.0, 0.0)
 yellow = fancy.CRGB(1.0, 1.0, 0.0)
 magenta = fancy.CRGB(1.0, 0.0, 1.0)
+light_blue = fancy.unpack(0x89CFF0)
 
 def create_palette(foreground, background):
     palette = displayio.Palette(2)
@@ -122,6 +126,7 @@ colors = dict(
     stop=red,
     load=yellow,
     error=magenta,
+    adjust_time=light_blue,
 )
 
 colors_50 = { k: fancy.mix(v, black, 0.5) for k, v in colors.items() }
@@ -140,6 +145,10 @@ stop_gradient = gamma_adjust(
 
 load_gradient = gamma_adjust(
     fancy.expand_gradient([(0.0, black), (1.0, colors_50['load'])], 25),
+)
+
+adjust_time_gradient = gamma_adjust(
+    fancy.expand_gradient([(0.0, black), (1.0, colors_50['adjust_time'])], 25),
 )
 
 def wait_for_reply_animated(gradient):
@@ -163,6 +172,7 @@ def show_error():
     macropad.pixels.fill(error_color.pack())
     macropad.pixels.show()
     time.sleep(1)
+    clear_pixels()
 
 def sleep(state):
     while macropad.pixels.brightness > 0:
@@ -228,10 +238,15 @@ def command(state):
     options_group = state['options_group']
     selected_option_index = state['selected_option_index']
 
+    clear_pixels()
     macropad.pixels[0] = command_colors['load'].pack()
     macropad.pixels[1] = command_colors['stop'].pack()
     macropad.pixels[2] = command_colors['start'].pack()
+    macropad.pixels[3] = command_colors['adjust_time'].pack()
     macropad.pixels.show()
+
+    macropad.display.show(options_group)
+    macropad.display.refresh()
 
     while True:
         if time.time() - last_activity > 3:
@@ -281,6 +296,98 @@ def command(state):
                 selected_option_index=selected_option_index
             )
 
+        if key_event and key_event.key_number == 3 and key_event.pressed:
+            return dict(
+                name='adjust_time',
+                selected_option_index=selected_option_index
+            )
+
+def adjust_time(state):
+    clear_pixels()
+    macropad.pixels[1] = command_colors['stop'].pack()
+    macropad.pixels[2] = command_colors['start'].pack()
+    macropad.pixels.show()
+
+    group = displayio.Group(
+        x=macropad.display.width//2,
+        y=macropad.display.height//2,
+    )
+
+    group.append(vectorio.Polygon(
+        pixel_shader=palettes['selected'],
+        points=[
+            (0, 0),
+            (-4, -4),
+            (4, -4),
+        ],
+        x=0,
+        y=-5,
+    ))
+
+    scale_group = displayio.Group()
+
+    scale_group.append(vectorio.Rectangle(
+        pixel_shader=palettes['selected'],
+        width=2,
+        height=20,
+        x=-1,
+        y=0
+    ))
+
+    max_adjustment = 45
+
+    for i in range(1, max_adjustment//5 + 1):
+        height = 10 if i % 2 == 0 else 5
+
+        scale_group.append(vectorio.Rectangle(
+            pixel_shader=palettes['selected'],
+            width=1,
+            height=height,
+            x=i*20,
+            y=0
+        ))
+
+        scale_group.append(vectorio.Rectangle(
+            pixel_shader=palettes['selected'],
+            width=1,
+            height=height,
+            x=-i*20,
+            y=0
+        ))
+
+    group.append(scale_group)
+
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    label = display_text.label.Label(
+        text='',
+        font=terminalio.FONT,
+        anchor_point=(0.5, 0),
+        anchored_position=(0, -25),
+    )
+    group.append(label)
+
+    minutes = 0
+    while True:
+        key_event = get_key_event()
+        encoder_diff = get_encoder_diff()
+
+        minutes = min(max_adjustment, max(-max_adjustment,
+            minutes + encoder_diff
+        ))
+
+        label.text = str(minutes)
+        scale_group.x = -minutes * 4
+
+        macropad.display.refresh()
+
+        if key_event and key_event.key_number == 2 and key_event.pressed:
+            return dict(name='send_adjust_time', adjust_minutes=minutes)
+
+        if key_event and key_event.key_number == 1 and key_event.pressed:
+            return dict(name='command')
+
 def send_start(state):
     options = state['options']
     selected_option_index = state['selected_option_index']
@@ -304,7 +411,6 @@ def send_start(state):
             clear_pixels()
             time.sleep(0.2)
 
-    clear_pixels()
     reset_activity_timer()
     return dict(name='command')
 
@@ -323,7 +429,25 @@ def send_stop(state):
             clear_pixels()
             time.sleep(0.2)
 
-    clear_pixels()
+    reset_activity_timer()
+    return dict(name='command')
+
+def send_adjust_time(state):
+    adjust_minutes = state['adjust_minutes']
+    send_message(dict(kind='adjustTime', minutes=adjust_minutes))
+
+    message = wait_for_reply_animated(adjust_time_gradient)
+
+    if not message or message['kind'] != 'success':
+        show_error()
+    else:
+        for i in range(2):
+            macropad.pixels[3] = command_colors['adjust_time'].pack()
+            macropad.pixels.show()
+            time.sleep(0.2)
+            clear_pixels()
+            time.sleep(0.2)
+
     reset_activity_timer()
     return dict(name='command')
 
@@ -353,7 +477,6 @@ def get_time_entries(state):
 
     if not message or message['kind'] != 'success':
         show_error()
-        clear_pixels()
         reset_activity_timer()
         return dict(name='command')
 
@@ -382,8 +505,10 @@ state_handlers = dict(
     get_time_entries=get_time_entries,
     draw_options=draw_options,
     command=command,
+    adjust_time=adjust_time,
     send_start=send_start,
     send_stop=send_stop,
+    send_adjust_time=send_adjust_time,
 )
 
 state = dict(
