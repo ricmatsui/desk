@@ -1,0 +1,8 @@
+version: '3'
+services:
+  rust_pi:
+    build:
+      context: .
+    volumes:
+      - './pi/registry:/root/.cargo/registry'
+      - '.:/workspace'

@@ -14,7 +14,18 @@ hot-lib-reloader = { version = "^0.6", features = ["verbose"], optional = true }
 lib = { path = "lib" }
 tokio = { version = "1.20.1", features = ["full"] }
 simple_logger = "^4.0.0"
+rppal = { version = "0.14.1", optional = true }
+
+[package.metadata.patch.raylib-sys]
+version = "3.7"
+patches = [
+    "patches/raylib-sys.patch"
+]
+
+[patch.crates-io]
+raylib-sys = { path = './target/patch/raylib-sys-3.7.0' }
 
 [features]
 default = []
+pi = ["lib/pi", "dep:rppal"]
 reloader = ["lib/reloader", "raylib/nobuild", "dep:hot-lib-reloader"]

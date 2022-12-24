@@ -11,9 +11,27 @@ args = ["runcc", "-c"]
 dependencies = ["build"]
 
 [tasks.build]
-dependencies = ["raylib_build", "bin_build", "raylib_copy", "raylib_cross_docker"]
+dependencies = [
+    "patch",
+    "raylib_build",
+    "bin_build",
+    "raylib_copy",
+]
+
+[tasks.release]
+workspace = false
+dependencies = [
+    "patch",
+    "pi_build",
+]
+
+[tasks.patch]
+workspace = false
+command = "cargo"
+args = ["patch"]
 
 [tasks.bin_build]
+workspace = false
 command = "cargo"
 args = ["build"]
 
@@ -23,13 +41,17 @@ args = ["clean"]
 dependencies = ["raylib_clean"]
 
 [tasks.raylib_build]
+workspace = false
 script = "cmake -S raylib -B raylib-build -DBUILD_SHARED_LIBS=ON -DBUILD_EXAMPLES=OFF && cd raylib-build && make"
 
 [tasks.raylib_copy]
+workspace = false
 script = "cd raylib-build && cp raylib/libraylib.3.5.0.dylib \"$CARGO_MAKE_CRATE_TARGET_DIRECTORY/debug/libraylib.351.dylib\""
 
 [tasks.raylib_clean]
+workspace = false
 script = "rm -rf raylib-build"
 
-[tasks.raylib_cross_docker]
-script = "docker build -t raylib_rs_env ."
+[tasks.pi_build]
+workspace = false
+script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && /root/.cargo/bin/cargo build --features pi --release --target-dir pi/target'"

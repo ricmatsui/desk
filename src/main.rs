@@ -49,7 +49,12 @@ fn main() {
         }
     });
 
-    let (mut rl, thread) = raylib::init().size(600, 320).title("Desk Pi").build();
+    #[cfg(feature = "pi")]
+    let (width, height) = (240, 240);
+    #[cfg(not(feature = "pi"))]
+    let (width, height) = (600, 320);
+
+    let (mut rl, thread) = raylib::init().size(width, height).title("Desk Pi").build();
 
     rl.set_target_fps(60);
 

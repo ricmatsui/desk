@@ -1,0 +1,41 @@
+--- build.rs
++++ build.rs
+@@ -188,7 +188,8 @@
+     }
+     if platform == Platform::Web {
+         println!("cargo:rustc-link-lib=glfw");
+-    }
++    } else if platform == Platform::RPI {
++        println!("cargo:rustc-link-search=/opt/vc/lib");
++        println!("cargo:rustc-link-lib=bcm_host");
++        println!("cargo:rustc-link-lib=brcmEGL");
++        println!("cargo:rustc-link-lib=brcmGLESv2");
++        println!("cargo:rustc-link-lib=vcos");
++    }
+ 
+     println!("cargo:rustc-link-lib=static=raylib");
+ }
+@@ -245,7 +245,7 @@
+         // Cargo web takes care of this but better safe than sorry
+         env::set_var("EMMAKEN_CFLAGS", "-s USE_GLFW=3");
+         Platform::Web
+-    } else if target.contains("armv7-unknown-linux") {
++    } else if target.contains("armv7-unknown-linux") || target.contains("arm-unknown-linux") {
+         Platform::RPI
+     } else {
+         Platform::Desktop
+--- raylib/src/core.c
++++ raylib/src/core.c
+@@ -4354,7 +4354,11 @@
+     // Load OpenGL extensions
+     // NOTE: GLFW loader function is required by GLAD but only used for OpenGL 2.1 and 3.3,
+     // OpenGL ES 2.0 extensions (and entry points) are loaded manually using eglGetProcAddress()
+-    rlLoadExtensions(glfwGetProcAddress);
++#if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
++    rlLoadExtensions(glfwGetProcAddress);
++#else
++    rlLoadExtensions(eglGetProcAddress);
++#endif
+ 
+     // Initialize OpenGL context (states and resources)
+     // NOTE: CORE.Window.screen.width and CORE.Window.screen.height not used, just stored as globals in rlgl
