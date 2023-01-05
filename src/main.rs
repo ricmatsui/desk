@@ -1,10 +1,12 @@
 #[cfg(feature = "reloader")]
-use {std::sync::mpsc::channel, std::thread, std::time};
+use {std::sync::mpsc::channel, std::thread};
+
+use std::{env, time};
 
 #[cfg(feature = "reloader")]
-use hot_lib::*;
+use hot_lib::{draw, init, update, ApiClient};
 #[cfg(not(feature = "reloader"))]
-use lib::*;
+use lib::{draw, init, update, ApiClient};
 
 #[cfg(feature = "reloader")]
 #[hot_lib_reloader::hot_module(dylib = "lib")]
@@ -15,15 +17,75 @@ mod hot_lib {
     pub fn subscribe() -> hot_lib_reloader::LibReloadObserver {}
 
     pub use lib::State;
+
+    pub use lib::ApiClient;
+}
+
+struct UreqApiClient {
+    request_agent: ureq::Agent,
+}
+
+impl ApiClient for UreqApiClient {
+    fn make_toggl_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&json::JsonValue>,
+    ) -> json::JsonValue {
+        let request = self
+            .request_agent
+            .request(
+                method,
+                &format!("{}{}", "https://api.track.toggl.com/", path),
+            )
+            .set("Content-Type", "application/json")
+            .set(
+                "Authorization",
+                &format!("Basic {}", base64::encode(env::var("TOGGL_AUTH").unwrap())),
+            );
+
+        let result = match body {
+            Some(body) => {
+                let body_string = body.dump();
+                log::debug!(target: "toggl", "-> {} {}", path, &body_string);
+                request.send_string(&body_string)
+            }
+            None => {
+                log::debug!(target: "toggl", "-> {}", path);
+                request.call()
+            }
+        };
+
+        let response_string = result.unwrap().into_string().unwrap();
+
+        log::debug!(target: "toggl", "<- {}", response_string);
+
+        json::parse(&response_string).unwrap()
+    }
 }
 
 fn main() {
-    #[cfg(feature = "reloader")]
-    let mut state = hot_lib::init();
-    #[cfg(not(feature = "reloader"))]
-    let mut state = lib::init();
+    simple_logger::SimpleLogger::new()
+        .with_module_level("rustls", log::LevelFilter::Warn)
+        .with_module_level("ureq", log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap();
 
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    let api_client = UreqApiClient {
+        request_agent: ureq::AgentBuilder::new()
+            .timeout_read(time::Duration::from_secs(5))
+            .timeout_write(time::Duration::from_secs(5))
+            .build(),
+    };
+
+    #[cfg(feature = "reloader")]
+    hot_lib::setup_logger(log::logger(), log::max_level()).unwrap();
+
+    #[cfg(feature = "reloader")]
+    let mut state = init(Box::new(api_client));
+    #[cfg(not(feature = "reloader"))]
+    let mut state = init(Box::new(api_client));
 
     #[cfg(feature = "reloader")]
     let (reload_tx, reload_rx) = channel();
@@ -40,6 +102,7 @@ fn main() {
                 reload_tx.send(0).unwrap();
                 drop(update_blocker);
                 lib_observer.wait_for_reload();
+                hot_lib::setup_logger(log::logger(), log::max_level()).unwrap();
                 reload_tx.send(0).unwrap();
             }
 
@@ -59,6 +122,8 @@ fn main() {
     rl.set_target_fps(60);
 
     while !rl.window_should_close() {
+        lib::macropad::open_macropad(&mut state.macropad);
+
         update(&mut state, &rl);
 
         let mut d = rl.begin_drawing(&thread);

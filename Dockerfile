@@ -7,11 +7,13 @@ RUN apt-get update && apt-get install -y \
     libxrandr-dev \
     libxi-dev \
     libasound2-dev \
+    libudev-dev \
     mesa-common-dev \
     libgl1-mesa-dev \
     libraspberrypi-dev \
     raspberrypi-kernel-headers \
     build-essential \
+    pkg-config \
     wget \
     git \
     vim \

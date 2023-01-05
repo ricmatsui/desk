@@ -1,5 +1,5 @@
 commands:
   bin: |
-    cargo watch -i lib -x 'run --features reloader'
+    sops exec-env env.yml "cargo watch -i lib -x 'run --features reloader'"
   lib: |
     cargo watch -w lib -x 'build --features reloader -p lib'

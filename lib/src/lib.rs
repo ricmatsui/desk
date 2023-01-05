@@ -1,11 +1,22 @@
 use raylib::prelude::*;
 
 mod input;
+pub mod macropad;
 mod pixels;
+
+pub trait ApiClient {
+    fn make_toggl_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&json::JsonValue>,
+    ) -> json::JsonValue;
+}
 
 pub struct State {
     context: Context,
     pixels: pixels::Pixels,
+    pub macropad: macropad::MacroPad,
 }
 
 pub struct Context {
@@ -14,13 +25,23 @@ pub struct Context {
 }
 
 #[no_mangle]
-pub fn init() -> State {
+pub fn setup_logger(
+    logger: &'static dyn log::Log,
+    level: log::LevelFilter,
+) -> Result<(), log::SetLoggerError> {
+    log::set_max_level(level);
+    log::set_logger(logger)
+}
+
+#[no_mangle]
+pub fn init(api_client: Box<dyn ApiClient>) -> State {
     State {
         context: Context {
             time: 0.0,
             input: input::init(),
         },
         pixels: pixels::init(),
+        macropad: macropad::init(api_client),
     }
 }
 
@@ -30,6 +51,7 @@ pub fn update(state: &mut State, rl: &raylib::RaylibHandle) {
     input::update(&mut state.context.input, rl);
 
     pixels::update(&mut state.pixels, &state.context, rl);
+    macropad::update(&mut state.macropad, &state.context, rl);
 }
 
 #[no_mangle]
@@ -53,6 +75,7 @@ pub fn draw(state: &State, d: &mut raylib::drawing::RaylibDrawHandle) {
     }
 
     pixels::draw(&state.pixels, &state.context, d);
+    macropad::draw(&state.macropad, &state.context, d);
 
     d.draw_fps(30, 30);
 }
