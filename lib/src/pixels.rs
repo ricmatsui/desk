@@ -55,24 +55,18 @@ const LED_GAMMA: [u8; 256] = [
     216, 218, 220, 222, 224, 227, 229, 231, 233, 235, 237, 239, 241, 244, 246, 248, 250, 252, 255,
 ];
 
-#[cfg(feature = "pi")]
 pub struct Pixels {
     pixels: [Color; PIXEL_COUNT],
     pixels_updated: bool,
+    enabled: bool,
     brightness: f32,
     fade_speed: f32,
     fade_frequency: f32,
 
+    #[cfg(feature = "pi")]
     i2c: I2c,
-}
-
-#[cfg(not(feature = "pi"))]
-pub struct Pixels {
-    pixels: [Color; PIXEL_COUNT],
-    pixels_updated: bool,
-    brightness: f32,
-    fade_speed: f32,
-    fade_frequency: f32,
+    #[cfg(feature = "pi")]
+    shim_enabled: bool,
 }
 
 pub fn init() -> Pixels {
@@ -85,7 +79,7 @@ pub fn init() -> Pixels {
         i2c.smbus_write_byte(0x00, 0x00).unwrap();
         i2c.smbus_write_byte(0x06, 0x00).unwrap();
 
-        turn_on(&mut i2c);
+        turn_on_shim(&mut i2c);
 
         i2c.smbus_write_byte(0xfd, 0x00).unwrap();
 
@@ -112,23 +106,26 @@ pub fn init() -> Pixels {
             i2c.smbus_write_byte(i, 0x00).unwrap();
         }
 
-        turn_off(&mut i2c);
+        turn_off_shim(&mut i2c);
 
         return Pixels {
-            pixels: [Color::GREEN; PIXEL_COUNT],
+            pixels: [Color::BLACK; PIXEL_COUNT],
             pixels_updated: false,
+            enabled: false,
             brightness: 1.0,
             fade_speed: 5.0,
             fade_frequency: 0.2,
 
             i2c,
+            shim_enabled: false,
         };
     }
 
     #[cfg(not(feature = "pi"))]
     Pixels {
-        pixels: [Color::GREEN; PIXEL_COUNT],
+        pixels: [Color::BLACK; PIXEL_COUNT],
         pixels_updated: false,
+        enabled: false,
         brightness: 1.0,
         fade_speed: 5.0,
         fade_frequency: 0.2,
@@ -136,45 +133,48 @@ pub fn init() -> Pixels {
 }
 
 pub fn update(pixels: &mut Pixels, context: &Context, _rl: &RaylibHandle) {
-    for i in 0..pixels.pixels.len() {
-        set_pixel(
-            pixels,
-            i,
-            Color::color_from_hsv(context.time as f32 * 90.0 + i as f32 * 2.0, 1.0, 1.0).fade(
-                ((context.time as f32 * pixels.fade_speed + i as f32 * pixels.fade_frequency)
-                    .sin()
-                    + 1.0)
-                    / 2.0
-                    * 0.15,
-            ),
-        );
+    if pixels.enabled {
+        for i in 0..pixels.pixels.len() {
+            set_pixel(
+                pixels,
+                i,
+                Color::color_from_hsv(context.time as f32 * 90.0 + i as f32 * 2.0, 1.0, 1.0).fade(
+                    ((context.time as f32 * pixels.fade_speed + i as f32 * pixels.fade_frequency)
+                        .sin()
+                        + 1.0)
+                        / 2.0
+                        * 0.15,
+                ),
+            );
+        }
     }
 
     #[cfg(feature = "pi")]
-    {
-        let mut data: [u8; 145] = [0; 145];
-        data[0] = 0x24;
+    if pixels.pixels_updated {
+        pixels.pixels_updated = false;
 
-        for i in 0..PIXEL_COUNT {
-            data[1 + LED_OFFSET[i][0]] =
-                LED_GAMMA[(pixels.pixels[i].r as f32 * pixels.pixels[i].a as f32 / 255.0
-                    * pixels.brightness) as usize];
-            data[1 + LED_OFFSET[i][1]] =
-                LED_GAMMA[(pixels.pixels[i].g as f32 * pixels.pixels[i].a as f32 / 255.0
-                    * pixels.brightness) as usize];
-            data[1 + LED_OFFSET[i][2]] =
-                LED_GAMMA[(pixels.pixels[i].b as f32 * pixels.pixels[i].a as f32 / 255.0
-                    * pixels.brightness) as usize];
+        if pixels.enabled && !pixels.shim_enabled {
+            turn_on_shim(&mut pixels.i2c);
+            pixels.shim_enabled = true;
         }
 
-        pixels.i2c.set_slave_address(LED_SHIM_ADDRESS).unwrap();
-        pixels.i2c.write(&data).unwrap();
+        if !pixels.enabled && pixels.shim_enabled {
+            turn_off_shim(&mut pixels.i2c);
+            pixels.shim_enabled = false;
+        }
+
+        send_shim_pixels(pixels);
     }
 }
 
 fn set_pixel(pixels: &mut Pixels, index: usize, color: Color) {
     pixels.pixels_updated = true;
     pixels.pixels[index] = color;
+}
+
+pub fn set_enabled(pixels: &mut Pixels, enabled: bool) {
+    pixels.pixels_updated = true;
+    pixels.enabled = enabled;
 }
 
 pub fn draw(pixels: &Pixels, _context: &Context, d: &mut RaylibDrawHandle) {
@@ -195,7 +195,7 @@ pub fn draw(pixels: &Pixels, _context: &Context, d: &mut RaylibDrawHandle) {
 }
 
 #[cfg(feature = "pi")]
-fn turn_on(i2c: &mut I2c) {
+fn turn_on_shim(i2c: &mut I2c) {
     i2c.set_slave_address(LED_SHIM_ADDRESS).unwrap();
     i2c.smbus_write_byte(0xfd, 0x0b).unwrap();
     i2c.smbus_write_byte(0x0a, 0x01).unwrap();
@@ -203,7 +203,7 @@ fn turn_on(i2c: &mut I2c) {
 }
 
 #[cfg(feature = "pi")]
-fn turn_off(i2c: &mut I2c) {
+fn turn_off_shim(i2c: &mut I2c) {
     for i in 0x24..0xB4 {
         i2c.smbus_write_byte(i, 0x00).unwrap();
     }
@@ -211,3 +211,25 @@ fn turn_off(i2c: &mut I2c) {
     i2c.smbus_write_byte(0xfd, 0x0b).unwrap();
     i2c.smbus_write_byte(0x0a, 0x00).unwrap();
 }
+
+#[cfg(feature = "pi")]
+fn send_shim_pixels(pixels: &mut Pixels) {
+    let mut data: [u8; 145] = [0; 145];
+    data[0] = 0x24;
+
+    for i in 0..PIXEL_COUNT {
+        data[1 + LED_OFFSET[i][0]] =
+            LED_GAMMA[(pixels.pixels[i].r as f32 * pixels.pixels[i].a as f32 / 255.0
+                * pixels.brightness) as usize];
+        data[1 + LED_OFFSET[i][1]] =
+            LED_GAMMA[(pixels.pixels[i].g as f32 * pixels.pixels[i].a as f32 / 255.0
+                * pixels.brightness) as usize];
+        data[1 + LED_OFFSET[i][2]] =
+            LED_GAMMA[(pixels.pixels[i].b as f32 * pixels.pixels[i].a as f32 / 255.0
+                * pixels.brightness) as usize];
+    }
+
+    pixels.i2c.set_slave_address(LED_SHIM_ADDRESS).unwrap();
+    pixels.i2c.write(&data).unwrap();
+}
+

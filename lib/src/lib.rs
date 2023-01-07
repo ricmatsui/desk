@@ -1,5 +1,6 @@
 use raylib::prelude::*;
 
+mod backlight;
 mod input;
 pub mod macropad;
 mod pixels;
@@ -17,6 +18,7 @@ pub struct State {
     context: Context,
     pixels: pixels::Pixels,
     pub macropad: macropad::MacroPad,
+    backlight: backlight::Backlight,
 }
 
 pub struct Context {
@@ -42,6 +44,7 @@ pub fn init(api_client: Box<dyn ApiClient>) -> State {
         },
         pixels: pixels::init(),
         macropad: macropad::init(api_client),
+        backlight: backlight::init(),
     }
 }
 
@@ -52,6 +55,14 @@ pub fn update(state: &mut State, rl: &raylib::RaylibHandle) {
 
     pixels::update(&mut state.pixels, &state.context, rl);
     macropad::update(&mut state.macropad, &state.context, rl);
+
+    if input::is_key_pressed(&state.context, KeyboardKey::KEY_X) {
+        pixels::set_enabled(&mut state.pixels, true);
+    }
+
+    if input::is_key_pressed(&state.context, KeyboardKey::KEY_Y) {
+        pixels::set_enabled(&mut state.pixels, false);
+    }
 }
 
 #[no_mangle]

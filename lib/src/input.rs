@@ -5,12 +5,13 @@ use rppal::gpio::{Gpio, InputPin};
 #[cfg(feature = "pi")]
 use rppal::i2c::I2c;
 
-#[cfg(feature = "pi")]
 pub struct Input {
     current: KeyState,
     previous: KeyState,
 
+    #[cfg(feature = "pi")]
     i2c: I2c,
+    #[cfg(feature = "pi")]
     pirate_buttons: PirateButtons,
 }
 
@@ -23,12 +24,6 @@ pub struct PirateButtons {
     pin_b: InputPin,
     pin_x: InputPin,
     pin_y: InputPin,
-}
-
-#[cfg(not(feature = "pi"))]
-pub struct Input {
-    current: KeyState,
-    previous: KeyState,
 }
 
 #[derive(Copy, Clone)]

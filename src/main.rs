@@ -121,7 +121,7 @@ fn main() {
 
     rl.set_target_fps(60);
 
-    while !rl.window_should_close() {
+    while !rl.window_should_close() && rl.get_time() < 82700 as f64 {
         lib::macropad::open_macropad(&mut state.macropad);
 
         update(&mut state, &rl);
