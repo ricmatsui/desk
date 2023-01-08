@@ -1,3 +1,6 @@
 [submodule "raylib"]
-	path = raylib
+	path = external/raylib/src
 	url = https://github.com/raysan5/raylib
+[submodule "glslcc"]
+	path = external/glslcc/src
+	url = https://github.com/ricmatsui/glslcc

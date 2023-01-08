@@ -8,20 +8,35 @@ dependencies = ["build"]
 workspace = false
 command = "cargo"
 args = ["runcc", "-c"]
-dependencies = ["build"]
+#dependencies = ["build"]
 
 [tasks.build]
+workspace = false
 dependencies = [
     "patch",
+    "glslcc_build",
     "raylib_build",
+    "shaders_build",
     "bin_build",
     "raylib_copy",
+]
+
+[tasks.clean]
+workspace = false
+dependencies = [
+    "pi_clean",
+    "glslcc_clean",
+    "raylib_clean",
+    "shaders_clean",
+    "bin_clean",
 ]
 
 [tasks.release]
 workspace = false
 dependencies = [
     "patch",
+    "glslcc_build",
+    "shaders_build",
     "pi_build",
 ]
 
@@ -35,23 +50,70 @@ workspace = false
 command = "cargo"
 args = ["build"]
 
-[tasks.clean]
+[tasks.bin_clean]
+workspace = false
 command = "cargo"
 args = ["clean"]
-dependencies = ["raylib_clean"]
 
 [tasks.raylib_build]
 workspace = false
-script = "cmake -S raylib -B raylib-build -DBUILD_SHARED_LIBS=ON -DBUILD_EXAMPLES=OFF && cd raylib-build && make"
+script = '''
+cmake -S external/raylib/src -B external/raylib/build -DBUILD_SHARED_LIBS=ON -DBUILD_EXAMPLES=OFF
+cd external/raylib/build
+make
+'''
 
 [tasks.raylib_copy]
 workspace = false
-script = "cd raylib-build && cp raylib/libraylib.3.5.0.dylib \"$CARGO_MAKE_CRATE_TARGET_DIRECTORY/debug/libraylib.351.dylib\""
+script = '''
+cd external/raylib/build
+cp raylib/libraylib.3.5.0.dylib "$CARGO_MAKE_CRATE_TARGET_DIRECTORY/debug/libraylib.351.dylib"
+'''
 
 [tasks.raylib_clean]
 workspace = false
-script = "rm -rf raylib-build"
+script = "rm -rf external/raylib/build"
+
+[tasks.glslcc_build]
+workspace = false
+script = '''
+cmake -S external/glslcc/src -B external/glslcc/build
+cd external/glslcc/build
+make
+'''
+
+[tasks.glslcc_clean]
+workspace = false
+script = "rm -rf external/glslcc/build"
+
+[tasks.shaders_build]
+workspace = false
+dependencies = [
+    "shaders_clean"
+]
+script = '''
+GLSLCC="$CARGO_MAKE_WORKING_DIRECTORY/external/glslcc/build/src/glslcc"
+BUILD="$CARGO_MAKE_WORKING_DIRECTORY/shaders/build"
+SOURCE="$CARGO_MAKE_WORKING_DIRECTORY/shaders/src"
+
+mkdir -p "$BUILD/100"
+mkdir -p "$BUILD/330"
+cd "$SOURCE"
+for shader in *.frag *.vert;
+do
+    $GLSLCC -O -l gles -p 100 -i "$shader" -o "$BUILD/100/$shader";
+    $GLSLCC -O -l glsl -p 330 -i "$shader" -o "$BUILD/330/$shader";
+done
+'''
+
+[tasks.shaders_clean]
+workspace = false
+script = "rm -rf shaders/build"
 
 [tasks.pi_build]
 workspace = false
 script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && /root/.cargo/bin/cargo build --features pi --release --target-dir pi/target'"
+
+[tasks.pi_clean]
+workspace = false
+script = "rm -rf pi/target"

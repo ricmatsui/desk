@@ -9,7 +9,9 @@ fn main() {
         let raylib_path = PathBuf::from(manifest_dir)
             .parent()
             .unwrap()
-            .join("raylib-build")
+            .join("external")
+            .join("raylib")
+            .join("build")
             .join("raylib");
 
         println!(

@@ -1,5 +1,13 @@
 commands:
-  bin: |
-    sops exec-env env.yml "cargo watch -i lib -x 'run --features reloader'"
-  lib: |
-    cargo watch -w lib -x 'build --features reloader -p lib'
+  bin: >
+    sops exec-env env.yml
+    "cargo watch
+    -i lib
+    -i shaders
+    -x 'run --features reloader'"
+  lib: >
+    cargo watch
+    -w lib
+    -w shaders
+    -x 'make shaders_build'
+    -x 'build --features reloader -p lib'
