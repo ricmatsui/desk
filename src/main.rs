@@ -4,7 +4,7 @@ use {std::sync::mpsc::channel, std::thread};
 use std::{env, time};
 
 #[cfg(feature = "reloader")]
-use hot_lib::{draw, init, update, handle_reload, ApiClient};
+use hot_lib::{draw, handle_reload, init, update, ApiClient};
 #[cfg(not(feature = "reloader"))]
 use lib::{draw, init, update, ApiClient};
 
@@ -72,6 +72,8 @@ fn main() {
     let (mut rl, thread) = raylib::init().size(width, height).title("Desk Pi").build();
 
     rl.set_target_fps(60);
+    #[cfg(feature = "pi")]
+    rl.hide_cursor();
 
     let mut state = init(&mut rl, &thread, Box::new(api_client));
 
@@ -80,11 +82,11 @@ fn main() {
 
         update(&mut state, &mut rl, &thread);
 
-        let mut d = rl.begin_drawing(&thread);
+        {
+            let mut d = rl.begin_drawing(&thread);
 
-        draw(&mut state, &mut d, &thread);
-
-        drop(d);
+            draw(&mut state, &mut d, &thread);
+        }
 
         #[cfg(feature = "reloader")]
         {
@@ -144,4 +146,3 @@ impl ApiClient for UreqApiClient {
         json::parse(&response_string).unwrap()
     }
 }
-

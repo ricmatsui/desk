@@ -1,0 +1,37 @@
+--- src/core/text.rs
++++ src/core/text.rs
+@@ -137,6 +137,34 @@
+         Ok(Font(f))
+     }
+ 
++    #[inline]
++    pub fn load_font_from_memory(
++        &mut self,
++        _: &RaylibThread,
++        file_type: &str,
++        file_data: &[u8],
++        font_size: i32,
++    ) -> Result<Font, String> {
++        let c_file_type = CString::new(file_type).unwrap();
++
++        let f = unsafe {
++            ffi::LoadFontFromMemory(
++                c_file_type.as_ptr(),
++                file_data.as_ptr(),
++                file_data.len() as i32,
++                font_size,
++                std::ptr::null_mut(),
++                0,
++            )
++        };
++        if f.chars.is_null() || f.texture.id == 0 {
++            return Err(format!(
++                "Error loading font {:?}", f
++            ));
++        }
++        Ok(Font(f))
++    }
++
+     /// Load font from Image (XNA style)
+     #[inline]
+     pub fn load_font_from_image(

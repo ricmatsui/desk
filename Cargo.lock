@@ -769,8 +769,6 @@ dependencies = [
 [[package]]
 name = "raylib"
 version = "3.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb567269b7ea9ae3c4a5aab4dc95e0b4d8df2a49a25e1670a3bb17bc17504606"
 dependencies = [
  "cfg-if 1.0.0",
  "lazy_static",
