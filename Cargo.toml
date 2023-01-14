@@ -19,6 +19,10 @@ rppal = { version = "0.14.1", optional = true }
 json = "0.12.4"
 ureq = "=2.5.0"
 base64 = "0.20.0"
+btleplug = "0.10.4"
+uuid = "1.2.2"
+futures = "0.3.25"
+packed_struct = "0.10.1"
 
 [package.metadata.patch.raylib]
 version = "3.7"

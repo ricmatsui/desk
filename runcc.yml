@@ -4,6 +4,7 @@ commands:
     "cargo watch
     -i lib
     -i shaders
+    -x 'make shaders_build'
     -x 'run --features reloader'"
   lib: >
     cargo watch

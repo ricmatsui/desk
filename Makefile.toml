@@ -88,9 +88,6 @@ script = "rm -rf external/glslcc/build"
 
 [tasks.shaders_build]
 workspace = false
-dependencies = [
-    "shaders_clean"
-]
 script = '''
 GLSLCC="$CARGO_MAKE_WORKING_DIRECTORY/external/glslcc/build/src/glslcc"
 BUILD="$CARGO_MAKE_WORKING_DIRECTORY/shaders/build"

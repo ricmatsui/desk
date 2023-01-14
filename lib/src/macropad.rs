@@ -1,16 +1,17 @@
 use super::Context;
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
+use std::rc::Rc;
 use std::{env, io, str};
 
 pub struct MacroPad {
     serial_port: Option<Box<dyn SerialPort>>,
     input_buffer: Vec<u8>,
     output_buffer: Vec<u8>,
-    api_client: Box<dyn super::ApiClient>,
+    api_client: Rc<dyn super::ApiClient>,
 }
 
-pub fn init(api_client: Box<dyn super::ApiClient>) -> MacroPad {
+pub fn init(api_client: Rc<dyn super::ApiClient>) -> MacroPad {
     MacroPad {
         serial_port: None,
         input_buffer: Vec::new(),

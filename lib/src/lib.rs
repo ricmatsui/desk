@@ -4,7 +4,7 @@ mod backlight;
 mod input;
 pub mod macropad;
 mod pixels;
-mod puck;
+pub mod puck;
 
 pub trait ApiClient {
     fn make_toggl_request(
@@ -13,6 +13,7 @@ pub trait ApiClient {
         path: &str,
         body: Option<&json::JsonValue>,
     ) -> json::JsonValue;
+    fn send_puck_image(&self, image: puck::PuckImage);
 }
 
 pub struct State {
@@ -39,7 +40,11 @@ pub fn setup_logger(
 }
 
 #[no_mangle]
-pub fn init(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread, api_client: Box<dyn ApiClient>) -> State {
+pub fn init(
+    rl: &mut raylib::RaylibHandle,
+    thread: &raylib::RaylibThread,
+    api_client: std::rc::Rc<dyn ApiClient>,
+) -> State {
     State {
         context: Context {
             time: 0.0,
@@ -47,9 +52,9 @@ pub fn init(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread, api_cl
             screen_enabled: false,
         },
         pixels: pixels::init(),
-        macropad: macropad::init(api_client),
+        macropad: macropad::init(api_client.clone()),
         backlight: backlight::init(),
-        puck: puck::init(rl, thread),
+        puck: puck::init(rl, thread, api_client.clone()),
     }
 }
 
@@ -76,7 +81,11 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
 }
 
 #[no_mangle]
-pub fn draw(state: &mut State, d: &mut raylib::drawing::RaylibDrawHandle, thread: &raylib::RaylibThread) {
+pub fn draw(
+    state: &mut State,
+    d: &mut raylib::drawing::RaylibDrawHandle,
+    thread: &raylib::RaylibThread,
+) {
     d.clear_background(Color::BLACK);
 
     pixels::draw(&state.pixels, &state.context, d);
@@ -94,6 +103,10 @@ pub fn draw(state: &mut State, d: &mut raylib::drawing::RaylibDrawHandle, thread
 
 #[cfg(feature = "reloader")]
 #[no_mangle]
-pub fn handle_reload(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) {
+pub fn handle_reload(
+    state: &mut State,
+    rl: &mut raylib::RaylibHandle,
+    thread: &raylib::RaylibThread,
+) {
     puck::handle_reload(&mut state.puck, rl, thread);
 }

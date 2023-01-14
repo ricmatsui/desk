@@ -232,4 +232,3 @@ fn send_shim_pixels(pixels: &mut Pixels) {
     pixels.i2c.set_slave_address(LED_SHIM_ADDRESS).unwrap();
     pixels.i2c.write(&data).unwrap();
 }
-

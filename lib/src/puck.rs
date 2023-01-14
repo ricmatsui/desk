@@ -1,14 +1,28 @@
 use super::Context;
 use raylib::prelude::*;
+use std::rc::Rc;
 use std::{mem, str};
 
 static GAME_OF_LIFE_SIZE: u32 = 296;
+
+const IMAGE_WIDTH: u32 = 296;
+const IMAGE_HEIGHT: u32 = 128;
+const IMAGE_PIXEL_COUNT: u32 = IMAGE_WIDTH * IMAGE_HEIGHT;
+const DITHERED_IMAGE_DATA_LENGTH: usize = IMAGE_PIXEL_COUNT as usize * 2;
+const PUCK_IMAGE_DATA_LENGTH: usize = DITHERED_IMAGE_DATA_LENGTH / 8;
+
+#[derive(Debug)]
+pub struct PuckImage {
+    pub data: [u8; PUCK_IMAGE_DATA_LENGTH],
+}
 
 pub struct Puck {
     game_of_life_shader: Shader,
     source_render_texture: RenderTexture2D,
     destination_render_texture: RenderTexture2D,
     seed_texture: Option<Texture2D>,
+
+    api_client: Rc<dyn super::ApiClient>,
 
     font: Font,
     image_texture: Texture2D,
@@ -19,7 +33,11 @@ pub struct Puck {
     frame_time_since_last_check: Option<f32>,
 }
 
-pub fn init(rl: &mut RaylibHandle, thread: &RaylibThread) -> Puck {
+pub fn init(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    api_client: Rc<dyn super::ApiClient>,
+) -> Puck {
     let source_render_texture = rl
         .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
         .unwrap();
@@ -36,14 +54,23 @@ pub fn init(rl: &mut RaylibHandle, thread: &RaylibThread) -> Puck {
         source_render_texture,
         destination_render_texture,
         seed_texture: Some(rl.load_texture_from_image(thread, &image).unwrap()),
+
+        api_client,
+
         font: rl
             .load_font_from_memory(thread, ".ttf", FONT_DATA, 80)
             .unwrap(),
         image_texture: rl
-            .load_texture_from_image(thread, &Image::gen_image_color(296, 128, Color::WHITE))
+            .load_texture_from_image(
+                thread,
+                &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
+            )
             .unwrap(),
         puck_texture: rl
-            .load_texture_from_image(thread, &Image::gen_image_color(296, 128, Color::WHITE))
+            .load_texture_from_image(
+                thread,
+                &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
+            )
             .unwrap(),
         current_date: None,
         current_date_string: None,
@@ -77,6 +104,15 @@ pub fn draw(puck: &mut Puck, context: &Context, d: &mut RaylibDrawHandle, thread
 
         image.color_grayscale();
         image.color_brightness(-30);
+
+        let mut puck_image = image.clone();
+        puck_image.rotate_ccw();
+        puck_image.dither(2, 2, 2, 2);
+
+        #[cfg(feature = "pi")]
+        puck.api_client
+            .send_puck_image(convert_to_puck_image(&puck_image));
+
         image.dither(2, 2, 2, 2);
         let converted_image = convert_puck_dithered_image(&image);
 
@@ -86,19 +122,53 @@ pub fn draw(puck: &mut Puck, context: &Context, d: &mut RaylibDrawHandle, thread
     #[cfg(not(feature = "pi"))]
     {
         d.draw_texture(&puck.image_texture, 260, 10, Color::WHITE);
-        d.draw_rectangle(260, 150, 296 + 4, 128 + 4, Color::GRAY);
+        d.draw_rectangle(
+            260,
+            150,
+            IMAGE_WIDTH as i32 + 4,
+            IMAGE_HEIGHT as i32 + 4,
+            Color::GRAY,
+        );
         d.draw_texture(&puck.puck_texture, 262, 152, Color::WHITE);
     }
 }
 
+fn convert_to_puck_image(image: &Image) -> PuckImage {
+    let mut transfer_data = [0; PUCK_IMAGE_DATA_LENGTH];
+
+    let image_data =
+        unsafe { std::slice::from_raw_parts(image.data as *const u8, DITHERED_IMAGE_DATA_LENGTH) };
+
+    for i in 0..PUCK_IMAGE_DATA_LENGTH / 2 {
+        let mut low_byte = 0;
+        let mut high_byte = 0;
+
+        for j in 0..8 {
+            let pixel = (image_data[i * 16 + j * 2] & 0b1100) >> 2;
+
+            low_byte |= ((pixel & 0b10) >> 1) << (7 - j);
+            high_byte |= (pixel & 0b01) << (7 - j);
+        }
+
+        transfer_data[i] = low_byte;
+        transfer_data[i + PUCK_IMAGE_DATA_LENGTH / 2] = high_byte;
+    }
+
+    return PuckImage {
+        data: transfer_data,
+    };
+}
+
 fn convert_puck_dithered_image(image: &Image) -> Image {
-    let data = unsafe { std::slice::from_raw_parts(image.data as *const u8, 296 * 296) };
+    let data =
+        unsafe { std::slice::from_raw_parts(image.data as *const u8, DITHERED_IMAGE_DATA_LENGTH) };
 
-    let mut dithered_image = Image::gen_image_color(296, 128, Color::WHITE);
+    let mut dithered_image =
+        Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
 
-    for x in 0..296 {
-        for y in 0..128 {
-            let index = ((y * 296 + x) * 2) as usize;
+    for x in 0..IMAGE_WIDTH as i32 {
+        for y in 0..IMAGE_HEIGHT as i32 {
+            let index = ((y * IMAGE_WIDTH as i32 + x) * 2) as usize;
             let value = ((data[index] & 0xf) as f32 / 15.0 * 255.0) as u8;
             let color = Color {
                 r: value,
@@ -160,7 +230,7 @@ fn generate_image(
     render_image.color_invert();
     render_image.color_brightness(30);
 
-    let mut image = Image::gen_image_color(296, 128, Color::WHITE);
+    let mut image = Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
 
     image.draw(
         &render_image,
@@ -168,8 +238,14 @@ fn generate_image(
         render_rectangle,
         Color::WHITE,
     );
-    image.draw_rectangle(0, 128 - 10, 296, 10, Color::color_from_hsv(0.0, 0.0, 0.63));
-    image.draw_rectangle(0, 128 - 10, 50, 10, Color::BLACK);
+    image.draw_rectangle(
+        0,
+        IMAGE_HEIGHT as i32 - 10,
+        IMAGE_WIDTH as i32,
+        10,
+        Color::color_from_hsv(0.0, 0.0, 0.63),
+    );
+    image.draw_rectangle(0, IMAGE_HEIGHT as i32 - 10, 50, 10, Color::BLACK);
 
     let date_string = format!("{}", current_date.format("%m-%d"));
 

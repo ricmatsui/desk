@@ -95,11 +95,11 @@ pub fn update(input: &mut Input, rl: &RaylibHandle) {
 
         input.i2c.set_slave_address(BUTTON_SHIM_ADDRESS).unwrap();
         let buttons = input.i2c.smbus_read_byte(0).unwrap();
-        input.current.key_one =   buttons & 0b10000 == 0;
-        input.current.key_two =   buttons & 0b01000 == 0;
+        input.current.key_one = buttons & 0b10000 == 0;
+        input.current.key_two = buttons & 0b01000 == 0;
         input.current.key_three = buttons & 0b00100 == 0;
-        input.current.key_four =  buttons & 0b00010 == 0;
-        input.current.key_five =  buttons & 0b00001 == 0;
+        input.current.key_four = buttons & 0b00010 == 0;
+        input.current.key_five = buttons & 0b00001 == 0;
     }
 
     #[cfg(not(feature = "pi"))]

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     libxi-dev \
     libasound2-dev \
     libudev-dev \
+    libdbus-1-dev \
     mesa-common-dev \
     libgl1-mesa-dev \
     libraspberrypi-dev \
