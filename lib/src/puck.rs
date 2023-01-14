@@ -1,5 +1,6 @@
 use super::Context;
 use raylib::prelude::*;
+use std::path::Path;
 use std::rc::Rc;
 use std::{mem, str};
 
@@ -46,8 +47,19 @@ pub fn init(
         .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
         .unwrap();
 
-    let image =
-        Image::gen_image_white_noise(GAME_OF_LIFE_SIZE as i32, GAME_OF_LIFE_SIZE as i32, 0.5);
+    let image_path = "game_of_life.png";
+
+    let image = if Path::new(image_path).exists() {
+        let existing_image = Image::load_image(image_path).unwrap();
+        log::debug!("loaded existing image");
+        existing_image
+    } else {
+        let new_image =
+            Image::gen_image_white_noise(GAME_OF_LIFE_SIZE as i32, GAME_OF_LIFE_SIZE as i32, 0.5);
+        new_image.export_image(image_path);
+        log::debug!("created new image");
+        new_image
+    };
 
     Puck {
         game_of_life_shader: load_game_of_life_shader(rl, thread),
