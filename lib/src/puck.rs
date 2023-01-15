@@ -49,17 +49,21 @@ pub fn init(
 
     let image_path = "game_of_life.png";
 
-    let image = if Path::new(image_path).exists() {
+    let mut image = if Path::new(image_path).exists() {
         let existing_image = Image::load_image(image_path).unwrap();
         log::debug!("loaded existing image");
         existing_image
     } else {
         let new_image =
             Image::gen_image_white_noise(GAME_OF_LIFE_SIZE as i32, GAME_OF_LIFE_SIZE as i32, 0.5);
-        new_image.export_image(image_path);
+        new_image.export_image("game_of_life_initial.png");
         log::debug!("created new image");
         new_image
     };
+
+    image.flip_horizontal();
+    image.rotate_cw();
+    image.rotate_cw();
 
     Puck {
         game_of_life_shader: load_game_of_life_shader(rl, thread),
@@ -227,22 +231,25 @@ fn generate_image(
     }
 
     let mut render_image = puck.destination_render_texture.get_texture_data().unwrap();
-    let render_rectangle = Rectangle::new(
-        0.0,
-        0.0,
-        render_image.width() as f32,
-        render_image.height() as f32,
-    );
 
     mem::swap(
         &mut puck.source_render_texture,
         &mut puck.destination_render_texture,
     );
 
+    render_image.export_image("game_of_life.png");
+
     render_image.color_invert();
     render_image.color_brightness(30);
 
     let mut image = Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
+
+    let render_rectangle = Rectangle::new(
+        0.0,
+        0.0,
+        render_image.width() as f32,
+        render_image.height() as f32,
+    );
 
     image.draw(
         &render_image,

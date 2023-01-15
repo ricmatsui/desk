@@ -4,6 +4,8 @@ commands:
     "cargo watch
     -i lib
     -i shaders
+    -i game_of_life.png
+    -i game_of_life_initial.png
     -x 'make shaders_build'
     -x 'run --features reloader'"
   lib: >

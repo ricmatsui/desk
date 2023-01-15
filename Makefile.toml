@@ -29,15 +29,20 @@ dependencies = [
     "raylib_clean",
     "shaders_clean",
     "bin_clean",
+    "python_clean",
+    "ansible_clean",
 ]
 
-[tasks.release]
+[tasks.deploy]
 workspace = false
 dependencies = [
     "patch",
     "glslcc_build",
     "shaders_build",
     "pi_build",
+    "python_install",
+    "ansible_install",
+    "ansible_playbook",
 ]
 
 [tasks.patch]
@@ -114,3 +119,23 @@ script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && /root/.ca
 [tasks.pi_clean]
 workspace = false
 script = "rm -rf pi/target"
+
+[tasks.python_install]
+workspace = false
+script = "poetry install"
+
+[tasks.python_clean]
+workspace = false
+script = "rm -rf .venv"
+
+[tasks.ansible_install]
+workspace = false
+script = "poetry run ansible-galaxy collection install -r requirements.yml"
+
+[tasks.ansible_clean]
+workspace = false
+script = "rm -rf ansible_collections"
+
+[tasks.ansible_playbook]
+workspace = false
+script = "poetry run ansible-playbook playbook.yml"

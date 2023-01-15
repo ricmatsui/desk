@@ -17,6 +17,7 @@ fn main() {
         .with_module_level("ureq", log::LevelFilter::Warn)
         .with_module_level("serde_xml_rs", log::LevelFilter::Warn)
         .with_module_level("btleplug", log::LevelFilter::Warn)
+        .with_module_level("bluez_async", log::LevelFilter::Warn)
         .env()
         .init()
         .unwrap();

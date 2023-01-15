@@ -1,0 +1,126 @@
+---
+
+- name: config
+  gather_facts: false
+  hosts:
+    - zero
+    - localhost
+  tags:
+    - always
+  tasks:
+    - name: load config
+      community.sops.load_vars:
+        file: config.yml
+
+- name: setup
+  gather_facts: false
+  hosts: zero
+  tasks:
+    - name: configure pwm
+      ansible.builtin.lineinfile:
+        path: /boot/config.txt
+        line: dtoverlay=pwm,pin=13,func=4
+      notify: reboot
+
+    - name: join bluetooth group
+      ansible.builtin.user:
+        name: pi
+        groups: bluetooth
+        append: true
+      notify: reboot
+
+    - name: check swap
+      ansible.builtin.shell:
+        cmd: cat /proc/swaps | tail -n +2
+      changed_when: false
+      register: swap_result
+
+    - name: disable swap
+      ansible.builtin.shell:
+        cmd: "{{ item }}"
+      loop:
+        - dphys-swapfile swapoff
+        - dphys-swapfile uninstall
+      when: swap_result.stdout_lines|length > 0
+      notify: reboot
+
+    - name: configure journal
+      community.general.ini_file:
+        path: /etc/systemd/journald.conf
+        section: Journal
+        option: "{{ item.option }}"
+        value: "{{ item.value }}"
+      loop:
+        - option: Storage
+          value: volatile
+        - option: RuntimeMaxUse
+          value: 15M
+      notify: reboot
+
+    - name: disable services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - dphys-swapfile
+        - rsyslog
+      notify: reboot
+
+  handlers:
+    - name: reboot
+      ansible.builtin.reboot:
+      listen: reboot
+
+- name: deploy
+  gather_facts: false
+  hosts: zero
+  tasks:
+    - name: gather services
+      ansible.builtin.service_facts:
+
+    - name: stop service
+      ansible.builtin.systemd:
+        name: deskpi.service
+        state: stopped
+      when: "'deskpi.service' in services"
+      notify: restart
+
+    - name: make directory
+      ansible.builtin.file:
+        path: /opt/deskpi
+        owner: root
+        group: root
+        state: directory
+      notify: restart
+
+    - name: copy executable
+      ansible.builtin.copy:
+        src: pi/target/release/deskpi
+        dest: /opt/deskpi/deskpi
+        owner: root
+        group: root
+        mode: 'u=rwx,g=rx,o=rx'
+      notify: restart
+
+    - name: configure service
+      ansible.builtin.template:
+        src: deskpi.service
+        dest: /etc/systemd/system
+        owner: root
+        group: root
+      notify: restart
+
+    - name: enable service
+      ansible.builtin.systemd:
+        name: deskpi
+        enabled: true
+      notify: restart
+
+  handlers:
+    - name: restart service
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: deskpi.service
+        state: restarted
+      listen: restart
