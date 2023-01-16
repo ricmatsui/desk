@@ -1,5 +1,26 @@
 --- build.rs
 +++ build.rs
+@@ -65,8 +65,11 @@
+     match platform {
+         Platform::Desktop => conf.define("PLATFORM", "Desktop"),
+         Platform::Web => conf.define("PLATFORM", "Web"),
+         Platform::RPI => conf.define("PLATFORM", "Raspberry Pi"),
+     };
++    if platform_os == PlatformOS::Linux && platform != Platform::RPI {
++        conf.define("GRAPHICS", "GRAPHICS_API_OPENGL_21");
++    }
+
+     let dst = conf.build();
+     let dst_lib = join_cmake_lib_directory(dst);
+@@ -172,7 +172,8 @@
+             println!("cargo:rustc-link-lib=dylib=shell32");
+         }
+         PlatformOS::Linux => {
+             println!("cargo:rustc-link-search=/usr/local/lib");
++            println!("cargo:rustc-link-search=/usr/lib/arm-linux-gnueabihf");
+             println!("cargo:rustc-link-lib=X11");
+         }
+         PlatformOS::OSX => {
 @@ -188,7 +188,8 @@
      }
      if platform == Platform::Web {

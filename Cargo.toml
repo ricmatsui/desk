@@ -23,6 +23,7 @@ btleplug = "0.10.4"
 uuid = "1.2.2"
 futures = "0.3.25"
 packed_struct = "0.10.1"
+vsprintf = "2.0.0"
 
 [package.metadata.patch.raylib]
 version = "3.7"

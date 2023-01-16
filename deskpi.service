@@ -1,7 +1,7 @@
 [Unit]
 Description=deskpi
-StartLimitIntervalSec=500
-StartLimitBurst=5
+StartLimitIntervalSec=30
+StartLimitBurst=1
 
 [Install]
 WantedBy=multi-user.target
@@ -9,8 +9,7 @@ WantedBy=multi-user.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/deskpi
-ExecStartPre=/bin/sleep 30
-ExecStart=/opt/deskpi/deskpi
+ExecStart=/usr/bin/xinit /opt/deskpi/deskpi -- :1 -logfile /dev/null
 Environment=TOGGL_AUTH={{ toggl_auth }}
 Environment=TOGGL_PROJECT_ID={{ toggl_project_id }}
 Environment=TOGGL_WORKSPACE_ID={{ toggl_workspace_id }}

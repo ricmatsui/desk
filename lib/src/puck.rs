@@ -321,13 +321,13 @@ static GAME_OF_LIFE_SHADER_FS: &[u8] = include_bytes!(concat!(
 #[cfg(feature = "pi")]
 static GAME_OF_LIFE_SHADER_VS: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../shaders/build/100/game_of_life_shader_vs.vert"
+    "/../shaders/build/120/game_of_life_shader_vs.vert"
 ));
 
 #[cfg(feature = "pi")]
 static GAME_OF_LIFE_SHADER_FS: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../shaders/build/100/game_of_life_shader_fs.frag"
+    "/../shaders/build/120/game_of_life_shader_fs.frag"
 ));
 
 static FONT_DATA: &[u8] = include_bytes!(concat!(

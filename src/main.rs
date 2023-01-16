@@ -50,12 +50,17 @@ fn main() {
         }
     });
 
+    unsafe {
+        raylib::ffi::SetTraceLogLevel(raylib::ffi::TraceLogLevel::LOG_TRACE as i32);
+        raylib::ffi::SetTraceLogCallback(Some(log_custom));
+    }
+
     #[cfg(feature = "pi")]
     let (width, height) = (240, 240);
     #[cfg(not(feature = "pi"))]
     let (width, height) = (600, 320);
 
-    let (mut rl, thread) = raylib::init().size(width, height).title("Desk Pi").build();
+    let (mut rl, thread) = raylib::init().title("Desk Pi").size(width, height).build();
 
     rl.set_target_fps(60);
 
@@ -108,6 +113,38 @@ mod hot_lib {
     pub use lib::State;
 
     pub use lib::ApiClient;
+}
+
+#[cfg(feature = "pi")]
+type LogText = *const u8;
+#[cfg(not(feature = "pi"))]
+type LogText = *const i8;
+
+pub extern "C" fn log_custom(msg_type: i32, text: LogText, args: *mut raylib::ffi::__va_list_tag) {
+    unsafe {
+        let formatted_text = vsprintf::vsprintf(text, args).unwrap();
+        match std::mem::transmute(msg_type) {
+            raylib::ffi::TraceLogLevel::LOG_FATAL => {
+                log::error!(target: "raylib", "FATAL: {}", formatted_text)
+            }
+            raylib::ffi::TraceLogLevel::LOG_ERROR => {
+                log::error!(target: "raylib", "{}", formatted_text)
+            }
+            raylib::ffi::TraceLogLevel::LOG_WARNING => {
+                log::warn!(target: "raylib", "{}", formatted_text)
+            }
+            raylib::ffi::TraceLogLevel::LOG_INFO => {
+                log::info!(target: "raylib", "{}", formatted_text)
+            }
+            raylib::ffi::TraceLogLevel::LOG_DEBUG => {
+                log::debug!(target: "raylib", "{}", formatted_text)
+            }
+            raylib::ffi::TraceLogLevel::LOG_TRACE => {
+                log::trace!(target: "raylib", "{}", formatted_text)
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -98,12 +98,12 @@ GLSLCC="$CARGO_MAKE_WORKING_DIRECTORY/external/glslcc/build/src/glslcc"
 BUILD="$CARGO_MAKE_WORKING_DIRECTORY/shaders/build"
 SOURCE="$CARGO_MAKE_WORKING_DIRECTORY/shaders/src"
 
-mkdir -p "$BUILD/100"
+mkdir -p "$BUILD/120"
 mkdir -p "$BUILD/330"
 cd "$SOURCE"
 for shader in *.frag *.vert;
 do
-    $GLSLCC -O -l gles -p 100 -i "$shader" -o "$BUILD/100/$shader";
+    $GLSLCC -O -l glsl -p 120 -i "$shader" -o "$BUILD/120/$shader";
     $GLSLCC -O -l glsl -p 330 -i "$shader" -o "$BUILD/330/$shader";
 done
 '''
@@ -114,7 +114,7 @@ script = "rm -rf shaders/build"
 
 [tasks.pi_build]
 workspace = false
-script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && /root/.cargo/bin/cargo build --features pi --release --target-dir pi/target'"
+script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && CMAKE_LIBRARY_PATH=/usr/lib/arm-linux-gnueabihf/ /root/.cargo/bin/cargo build --features pi --release --target-dir pi/target'"
 
 [tasks.pi_clean]
 workspace = false
@@ -138,4 +138,4 @@ script = "rm -rf ansible_collections"
 
 [tasks.ansible_playbook]
 workspace = false
-script = "poetry run ansible-playbook playbook.yml"
+script = "poetry run ansible-playbook playbook.yml ${@}"

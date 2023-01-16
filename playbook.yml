@@ -16,10 +16,30 @@
   gather_facts: false
   hosts: zero
   tasks:
-    - name: configure pwm
-      ansible.builtin.lineinfile:
+    - name: configure devices
+      ansible.builtin.blockinfile:
         path: /boot/config.txt
-        line: dtoverlay=pwm,pin=13,func=4
+        block: |
+          [all]
+          dtparam=i2c_arm=on
+          dtparam=i2c_arm_baudrate=400000
+          dtoverlay=pwm,pin=13,func=4
+          gpu_mem=64
+          dtoverlay=vc4-fkms-v3d
+          max_framebuffers=2
+          avoid_warnings=2
+          hdmi_group=2
+          hdmi_mode=87
+          hdmi_cvt=240 240 60 1 0 0 0
+          hdmi_force_hotplug=1
+      notify: reboot
+
+    - name: configure memory
+      ansible.builtin.lineinfile:
+        path: /boot/cmdline.txt
+        backrefs: True
+        regexp: '(^.+plymouth.ignore-serial-consoles)$'
+        line: '\1 cma=128M@64M'
       notify: reboot
 
     - name: join bluetooth group
@@ -76,15 +96,43 @@
   gather_facts: false
   hosts: zero
   tasks:
-    - name: gather services
-      ansible.builtin.service_facts:
+    - name: configure xorg
+      ansible.builtin.copy:
+        content: |
+          Section "Monitor"
+              Identifier "HDMI-1"
+              Modeline "240x240" 4.19 240 248 264 288 240 243 253 256 -hsync +vsync
+              Option "Rotate" "right"
+          EndSection
+          Section "Screen"
+              Identifier "Screen-0"
+              Device "Card0"
+              Monitor "HDMI-1"
+              SubSection "Display"
+                  Virtual 320 240
+                  Modes "240x240"
+              EndSubSection
+          EndSection
+          Section "ServerLayout"
+              Identifier "Layout-0"
+              Screen "Screen-0" 0 0
+          EndSection
+          Section "ServerFlags"
+              Option "BlankTime" "0"
+          EndSection
+        dest: /usr/share/X11/xorg.conf.d/10-deskpi.conf
+        owner: root
+        group: root
+      notify: restart
 
     - name: stop service
       ansible.builtin.systemd:
         name: deskpi.service
         state: stopped
-      when: "'deskpi.service' in services"
+      ignore_errors: true
       notify: restart
+      tags:
+        - code
 
     - name: make directory
       ansible.builtin.file:
@@ -102,6 +150,8 @@
         group: root
         mode: 'u=rwx,g=rx,o=rx'
       notify: restart
+      tags:
+        - code
 
     - name: configure service
       ansible.builtin.template:
@@ -110,6 +160,8 @@
         owner: root
         group: root
       notify: restart
+      tags:
+        - service
 
     - name: enable service
       ansible.builtin.systemd:
