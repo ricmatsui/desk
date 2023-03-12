@@ -1,7 +1,7 @@
 [Unit]
 Description=deskpi
-StartLimitIntervalSec=30
-StartLimitBurst=1
+StartLimitIntervalSec=500
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

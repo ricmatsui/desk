@@ -45,6 +45,16 @@
          Platform::RPI
      } else {
          Platform::Desktop
+--- raylib/src/config.h
++++ raylib/src/config.h
+@@ -125,6 +125,6 @@
+ //#define SUPPORT_FILEFORMAT_BMP      1
+ //#define SUPPORT_FILEFORMAT_TGA      1
+-//#define SUPPORT_FILEFORMAT_JPG      1
++#define SUPPORT_FILEFORMAT_JPG      1
+ #define SUPPORT_FILEFORMAT_GIF      1
+ //#define SUPPORT_FILEFORMAT_PSD      1
+ #define SUPPORT_FILEFORMAT_DDS      1
 --- raylib/src/core.c
 +++ raylib/src/core.c
 @@ -4354,7 +4354,11 @@

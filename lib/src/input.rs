@@ -133,6 +133,23 @@ pub fn is_key_pressed(context: &Context, key: KeyboardKey) -> bool {
     }
 }
 
+pub fn is_key_released(context: &Context, key: KeyboardKey) -> bool {
+    match key {
+        KeyboardKey::KEY_ONE => !context.input.current.key_one && context.input.previous.key_one,
+        KeyboardKey::KEY_TWO => !context.input.current.key_two && context.input.previous.key_two,
+        KeyboardKey::KEY_THREE => {
+            !context.input.current.key_three && context.input.previous.key_three
+        }
+        KeyboardKey::KEY_FOUR => !context.input.current.key_four && context.input.previous.key_four,
+        KeyboardKey::KEY_FIVE => !context.input.current.key_five && context.input.previous.key_five,
+        KeyboardKey::KEY_A => !context.input.current.key_a && context.input.previous.key_a,
+        KeyboardKey::KEY_B => !context.input.current.key_b && context.input.previous.key_b,
+        KeyboardKey::KEY_X => !context.input.current.key_x && context.input.previous.key_x,
+        KeyboardKey::KEY_Y => !context.input.current.key_y && context.input.previous.key_y,
+        _ => panic!("Unsupported keyboard key"),
+    }
+}
+
 pub fn is_key_down(context: &Context, key: KeyboardKey) -> bool {
     match key {
         KeyboardKey::KEY_ONE => context.input.current.key_one,

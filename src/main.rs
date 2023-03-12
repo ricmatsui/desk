@@ -1,7 +1,7 @@
 use btleplug::api::{Central as _, Manager as _, Peripheral as _};
 use futures::stream::StreamExt as _;
 use packed_struct::prelude::*;
-use std::{env, rc::Rc, thread, time};
+use std::{env, io::Read, rc::Rc, thread, time};
 
 #[cfg(feature = "reloader")]
 use hot_lib::{draw, handle_reload, init, update, ApiClient as LibApiClient};
@@ -181,6 +181,71 @@ impl ApiClient {
 }
 
 impl LibApiClient for ApiClient {
+    fn make_noaa_tile_request(&self, level: u8, x: u8, y: u8) -> raylib::core::texture::Image {
+        let request = self
+            .request_agent
+            .request(
+                "GET",
+                &format!("https://gis.nnvl.noaa.gov/arcgis/rest/services/TRUE/TRUE_current/ImageServer/tile/{}/{}/{}", level, y, x)
+                )
+            .set("Content-Type", "image/jpeg");
+
+        let response = request.call().unwrap();
+
+        let length: usize = response.header("Content-Length").unwrap().parse().unwrap();
+        println!("length: {}", length);
+
+        let mut bytes: Vec<u8> = Vec::with_capacity(length);
+
+        response
+            .into_reader()
+            .take(10_000_000)
+            .read_to_end(&mut bytes)
+            .unwrap();
+
+        assert_eq!(bytes.len(), length);
+
+        raylib::core::texture::Image::load_image_from_mem(".jpeg", &bytes, length as i32).unwrap()
+    }
+
+    fn make_noaa_archive_request(
+        &self,
+        width: u32,
+        height: u32,
+        date: chrono::DateTime<chrono::Utc>,
+    ) -> raylib::core::texture::Image {
+        log::debug!(target: "noaa", "-> export image {}", date);
+        let request = self
+            .request_agent
+            .request(
+                "GET",
+                "https://gis.nnvl.noaa.gov/arcgis/rest/services/TRUE/TRUE_daily_750m/ImageServer/exportImage"
+                )
+            .query("bbox", "-180.0,-90,180.0,90.0")
+            .query("size", &format!("{}x{}", width, height))
+            .query("imageSR", "43001")
+            .query("time", &format!("{}", date.timestamp_millis()))
+            .query("format", "png")
+            .query("pixelType", "U8")
+            .query("adjustAspectRatio", "true")
+            .query("f", "image")
+            .set("Content-Type", "image/png");
+
+        let response = request.call().unwrap();
+
+        let length: usize = response.header("Content-Length").unwrap().parse().unwrap();
+
+        let mut bytes: Vec<u8> = Vec::with_capacity(length);
+
+        response.into_reader().read_to_end(&mut bytes).unwrap();
+
+        assert_eq!(bytes.len(), length);
+
+        let image = raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32).unwrap();
+        log::debug!(target: "noaa", "<- image {} {:?}", length, image);
+        image
+    }
+
     fn make_toggl_request(
         &self,
         method: &str,

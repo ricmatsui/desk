@@ -2,7 +2,7 @@ use super::Context;
 use raylib::prelude::*;
 use std::path::Path;
 use std::rc::Rc;
-use std::{mem, str};
+use std::{fs, mem, str};
 
 static GAME_OF_LIFE_SIZE: u32 = 296;
 
@@ -74,7 +74,7 @@ pub fn init(
         api_client,
 
         font: rl
-            .load_font_from_memory(thread, ".ttf", FONT_DATA, 80)
+            .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
             .unwrap(),
         image_texture: rl
             .load_texture_from_image(
@@ -90,7 +90,10 @@ pub fn init(
             .unwrap(),
         current_date: None,
         current_date_string: None,
-        last_date_string: None,
+        last_date_string: match std::fs::read("date.txt") {
+            Ok(data) => Some(String::from_utf8(data).unwrap()),
+            Err(_) => None,
+        },
         frame_time_since_last_check: None,
     }
 }
@@ -113,6 +116,7 @@ pub fn draw(puck: &mut Puck, context: &Context, d: &mut RaylibDrawHandle, thread
         || super::input::is_key_pressed(context, KeyboardKey::KEY_TWO)
     {
         puck.last_date_string = puck.current_date_string.clone();
+        fs::write("date.txt", puck.last_date_string.as_ref().unwrap()).unwrap();
 
         let mut image = generate_image(puck, puck.current_date.unwrap(), d, thread);
 

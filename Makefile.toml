@@ -65,7 +65,7 @@ workspace = false
 script = '''
 cmake -S external/raylib/src -B external/raylib/build -DBUILD_SHARED_LIBS=ON -DBUILD_EXAMPLES=OFF
 cd external/raylib/build
-make
+CFLAGS="-DSUPPORT_FILEFORMAT_JPG=1" make
 '''
 
 [tasks.raylib_copy]
