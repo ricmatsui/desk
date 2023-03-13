@@ -6,6 +6,7 @@ mod input;
 pub mod macropad;
 mod pixels;
 pub mod puck;
+mod matrix;
 
 pub trait ApiClient {
     fn make_noaa_tile_request(&self, level: u8, x: u8, y: u8) -> Image;
@@ -31,6 +32,7 @@ pub struct State {
     backlight: backlight::Backlight,
     puck: puck::Puck,
     earth: earth::Earth,
+    matrix: matrix::Matrix,
 }
 
 pub struct Context {
@@ -65,6 +67,7 @@ pub fn init(
         backlight: backlight::init(),
         puck: puck::init(rl, thread, api_client.clone()),
         earth: earth::init(rl, thread, api_client.clone()),
+        matrix: matrix::init(rl, thread, api_client.clone()),
     }
 }
 
@@ -75,12 +78,14 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
 
     if input::is_key_pressed(&state.context, KeyboardKey::KEY_X) {
         pixels::set_enabled(&mut state.pixels, true);
+        matrix::set_enabled(&mut state.matrix, true);
         backlight::set_enabled(&mut state.backlight, true);
         state.context.screen_enabled = true;
     }
 
     if input::is_key_pressed(&state.context, KeyboardKey::KEY_Y) {
         pixels::set_enabled(&mut state.pixels, false);
+        matrix::set_enabled(&mut state.matrix, false);
         backlight::set_enabled(&mut state.backlight, false);
         state.context.screen_enabled = false;
     }
@@ -89,6 +94,7 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
     macropad::update(&mut state.macropad, &state.context, rl);
     puck::update(&mut state.puck, &state.context, rl, thread);
     earth::update(&mut state.earth, &state.context, rl, thread);
+    matrix::update(&mut state.matrix, &state.context, rl, thread);
 }
 
 #[no_mangle]
@@ -103,6 +109,7 @@ pub fn draw(
     macropad::draw(&state.macropad, &state.context, d);
     puck::draw(&mut state.puck, &state.context, d, thread);
     earth::draw(&mut state.earth, &state.context, d, thread);
+    matrix::draw(&mut state.matrix, &state.context, d, thread);
 
     if input::is_key_down(&state.context, KeyboardKey::KEY_ONE) {
         d.draw_rectangle_lines(0, 0, 240, 240, Color::ORANGE);

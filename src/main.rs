@@ -58,7 +58,7 @@ fn main() {
     #[cfg(feature = "pi")]
     let (width, height) = (240, 240);
     #[cfg(not(feature = "pi"))]
-    let (width, height) = (600, 320);
+    let (width, height) = (700, 320);
 
     let (mut rl, thread) = raylib::init().title("Desk Pi").size(width, height).build();
 
@@ -241,7 +241,9 @@ impl LibApiClient for ApiClient {
 
         assert_eq!(bytes.len(), length);
 
-        let image = raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32).unwrap();
+        let image =
+            raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32)
+                .unwrap();
         log::debug!(target: "noaa", "<- image {} {:?}", length, image);
         image
     }
