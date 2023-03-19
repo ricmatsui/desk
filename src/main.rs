@@ -1,12 +1,14 @@
 use btleplug::api::{Central as _, Manager as _, Peripheral as _};
 use futures::stream::StreamExt as _;
 use packed_struct::prelude::*;
+#[cfg(feature = "pi")]
+use rppal::i2c::I2c;
 use std::{env, io::Read, rc::Rc, thread, time};
 
 #[cfg(feature = "reloader")]
-use hot_lib::{draw, handle_reload, init, update, ApiClient as LibApiClient};
+use hot_lib::{draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation};
 #[cfg(not(feature = "reloader"))]
-use lib::{draw, init, update, ApiClient as LibApiClient};
+use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation};
 
 #[cfg(feature = "reloader")]
 use std::sync::mpsc::channel;
@@ -113,6 +115,8 @@ mod hot_lib {
     pub use lib::State;
 
     pub use lib::ApiClient;
+
+    pub use lib::I2cOperation;
 }
 
 #[cfg(feature = "pi")]
@@ -156,12 +160,15 @@ struct PuckImageCommand {
 #[derive(Debug)]
 struct ApiClient {
     request_agent: ureq::Agent,
-    pub puck_image_tx: Option<tokio::sync::mpsc::Sender<PuckImageCommand>>,
-    pub bluetooth_thread: std::thread::JoinHandle<()>,
+    i2c_tx: Option<std::sync::mpsc::SyncSender<Vec<I2cOperation>>>,
+    i2c_thread: std::thread::JoinHandle<()>,
+    puck_image_tx: Option<tokio::sync::mpsc::Sender<PuckImageCommand>>,
+    bluetooth_thread: std::thread::JoinHandle<()>,
 }
 
 impl ApiClient {
     fn new() -> Self {
+        let (i2c_thread, i2c_tx) = start_i2c();
         let (bluetooth_thread, puck_image_tx) = start_bluetooth();
 
         ApiClient {
@@ -169,12 +176,16 @@ impl ApiClient {
                 .timeout_read(time::Duration::from_secs(5))
                 .timeout_write(time::Duration::from_secs(5))
                 .build(),
+            i2c_tx: Some(i2c_tx),
+            i2c_thread,
             puck_image_tx: Some(puck_image_tx),
             bluetooth_thread,
         }
     }
 
     fn shutdown(mut self) {
+        self.i2c_tx = None;
+        self.i2c_thread.join().unwrap();
         self.puck_image_tx = None;
         self.bluetooth_thread.join().unwrap();
     }
@@ -300,6 +311,45 @@ impl LibApiClient for ApiClient {
 
         log::debug!(target: "puck", "<- done");
     }
+
+    fn enqueue_i2c(&self, operations: Vec<I2cOperation>) {
+        self.i2c_tx.as_ref().unwrap().send(operations);
+    }
+}
+
+fn start_i2c() -> (
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::SyncSender<Vec<I2cOperation>>,
+) {
+    let (i2c_tx, i2c_rx) = std::sync::mpsc::sync_channel::<Vec<I2cOperation>>(100);
+
+    let thread = thread::spawn(move || {
+        #[cfg(not(feature = "pi"))]
+        while let Ok(_operations) = i2c_rx.recv() {}
+
+        #[cfg(feature = "pi")]
+        {
+            let mut i2c = I2c::new().unwrap();
+
+            while let Ok(operations) = i2c_rx.recv() {
+                for operation in operations {
+                    match operation {
+                        I2cOperation::SetAddress(address) => {
+                            i2c.set_slave_address(address).unwrap();
+                        }
+                        I2cOperation::WriteByte(command, value) => {
+                            i2c.smbus_write_byte(command, value).unwrap();
+                        }
+                        I2cOperation::Write(buffer) => {
+                            i2c.write(&buffer).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    (thread, i2c_tx)
 }
 
 fn start_bluetooth() -> (

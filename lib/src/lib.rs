@@ -4,9 +4,9 @@ mod backlight;
 mod earth;
 mod input;
 pub mod macropad;
+mod matrix;
 mod pixels;
 pub mod puck;
-mod matrix;
 
 pub trait ApiClient {
     fn make_noaa_tile_request(&self, level: u8, x: u8, y: u8) -> Image;
@@ -23,6 +23,14 @@ pub trait ApiClient {
         body: Option<&json::JsonValue>,
     ) -> json::JsonValue;
     fn send_puck_image(&self, image: puck::PuckImage);
+    fn enqueue_i2c(&self, operations: Vec<I2cOperation>);
+}
+
+#[derive(Debug, Clone)]
+pub enum I2cOperation {
+    SetAddress(u16),
+    WriteByte(u8, u8),
+    Write(Vec<u8>),
 }
 
 pub struct State {
@@ -62,7 +70,7 @@ pub fn init(
             input: input::init(),
             screen_enabled: false,
         },
-        pixels: pixels::init(),
+        pixels: pixels::init(api_client.clone()),
         macropad: macropad::init(api_client.clone()),
         backlight: backlight::init(),
         puck: puck::init(rl, thread, api_client.clone()),
@@ -91,10 +99,11 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
     }
 
     pixels::update(&mut state.pixels, &state.context, rl);
+    matrix::update(&mut state.matrix, &state.context, rl, thread);
+
     macropad::update(&mut state.macropad, &state.context, rl);
     puck::update(&mut state.puck, &state.context, rl, thread);
     earth::update(&mut state.earth, &state.context, rl, thread);
-    matrix::update(&mut state.matrix, &state.context, rl, thread);
 }
 
 #[no_mangle]

@@ -1,9 +1,6 @@
-use super::Context;
+use super::{Context, I2cOperation};
 use raylib::prelude::*;
-#[cfg(feature = "pi")]
-use rppal::i2c::I2c;
 
-#[cfg(feature = "pi")]
 const MATRIX_ADDRESS: u16 = 0x30;
 
 pub struct Matrix {
@@ -11,10 +8,7 @@ pub struct Matrix {
     scroll_position: f32,
     updated: bool,
     enabled: bool,
-
-    #[cfg(feature = "pi")]
-    i2c: I2c,
-    #[cfg(feature = "pi")]
+    api_client: std::rc::Rc<dyn super::ApiClient>,
     driver_enabled: bool,
 }
 
@@ -25,59 +19,49 @@ pub fn init(
 ) -> Matrix {
     let mut image = Image::gen_image_checked(13, 9, 1, 1, Color::BLACK, Color::WHITE);
 
-    #[cfg(feature = "pi")]
-    {
-        let mut i2c = I2c::new().unwrap();
+    let mut scaling = [0x20; 181];
+    scaling[0] = 0x00;
 
-        i2c.set_slave_address(MATRIX_ADDRESS).unwrap();
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x04).unwrap();
-        i2c.smbus_write_byte(0x3f, 0xae).unwrap();
-        i2c.smbus_write_byte(0x01, 0x03).unwrap();
+    let zero_pixels = [0x00; 181];
 
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x02).unwrap();
-        let mut page_2 = [0x20; 181];
-        page_2[0] = 0x00;
-        i2c.write(&page_2).unwrap();
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x03).unwrap();
-        let mut page_3 = [0x20; 172];
-        page_3[0] = 0x00;
-        i2c.write(&page_3).unwrap();
+    api_client.enqueue_i2c(vec![
+        I2cOperation::SetAddress(MATRIX_ADDRESS),
+        // Reset
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x04),
+        I2cOperation::WriteByte(0x3f, 0xae),
+        I2cOperation::WriteByte(0x01, 0x03),
+        // Set scaling
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x02),
+        I2cOperation::Write(scaling.to_vec()),
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x03),
+        I2cOperation::Write(scaling[..172].to_vec()),
+        // Enable
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x04),
+        I2cOperation::WriteByte(0x00, 0x01),
+        // Clear
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x00),
+        I2cOperation::Write(zero_pixels.to_vec()),
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x01),
+        I2cOperation::Write(zero_pixels[..172].to_vec()),
+        // Disable
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x04),
+        I2cOperation::WriteByte(0x00, 0x00),
+    ]);
 
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x04).unwrap();
-        i2c.smbus_write_byte(0x00, 0x01).unwrap();
-
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x00).unwrap();
-        i2c.write(&[0x00; 181]).unwrap();
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x01).unwrap();
-        i2c.write(&[0x00; 172]).unwrap();
-
-        i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-        i2c.smbus_write_byte(0xfd, 0x04).unwrap();
-        i2c.smbus_write_byte(0x00, 0x00).unwrap();
-
-        return Matrix {
-            image,
-            scroll_position: 0.0,
-            updated: false,
-            enabled: false,
-
-            i2c,
-            driver_enabled: false,
-        };
-    }
-
-    #[cfg(not(feature = "pi"))]
     Matrix {
         image,
         scroll_position: 0.0,
         updated: false,
         enabled: false,
+        driver_enabled: false,
+        api_client,
     }
 }
 
@@ -116,17 +100,16 @@ pub fn update(
         matrix.updated = true;
     }
 
-    #[cfg(feature = "pi")]
     if matrix.updated {
         matrix.updated = false;
 
         if matrix.enabled && !matrix.driver_enabled {
-            turn_on_matrix(&mut matrix.i2c);
+            turn_on_matrix(matrix);
             matrix.driver_enabled = true;
         }
 
         if !matrix.enabled && matrix.driver_enabled {
-            turn_off_matrix(&mut matrix.i2c);
+            turn_off_matrix(matrix);
             matrix.driver_enabled = false;
         }
 
@@ -157,31 +140,34 @@ pub fn set_enabled(matrix: &mut Matrix, enabled: bool) {
     matrix.enabled = enabled;
 }
 
-#[cfg(feature = "pi")]
-fn turn_on_matrix(i2c: &mut I2c) {
-    i2c.set_slave_address(MATRIX_ADDRESS).unwrap();
-    i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    i2c.smbus_write_byte(0xfd, 0x04).unwrap();
-    i2c.smbus_write_byte(0x00, 0x01).unwrap();
+fn turn_on_matrix(matrix: &mut Matrix) {
+    matrix.api_client.enqueue_i2c(vec![
+        I2cOperation::SetAddress(MATRIX_ADDRESS),
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x04),
+        I2cOperation::WriteByte(0x00, 0x01),
+    ]);
 }
 
-#[cfg(feature = "pi")]
-fn turn_off_matrix(i2c: &mut I2c) {
-    i2c.set_slave_address(MATRIX_ADDRESS).unwrap();
+fn turn_off_matrix(matrix: &mut Matrix) {
+    let zero_pixels = [0x00; 181];
 
-    i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    i2c.smbus_write_byte(0xfd, 0x00).unwrap();
-    i2c.write(&[0x00; 181]).unwrap();
-    i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    i2c.smbus_write_byte(0xfd, 0x01).unwrap();
-    i2c.write(&[0x00; 172]).unwrap();
-
-    i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    i2c.smbus_write_byte(0xfd, 0x04).unwrap();
-    i2c.smbus_write_byte(0x00, 0x00).unwrap();
+    matrix.api_client.enqueue_i2c(vec![
+        I2cOperation::SetAddress(MATRIX_ADDRESS),
+        // Clear
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x00),
+        I2cOperation::Write(zero_pixels.to_vec()),
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x01),
+        I2cOperation::Write(zero_pixels[..172].to_vec()),
+        // Disable
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x04),
+        I2cOperation::WriteByte(0x00, 0x00),
+    ]);
 }
 
-#[cfg(feature = "pi")]
 fn send_matrix_pixels(matrix: &mut Matrix) {
     let image_data = matrix.image.get_image_data();
 
@@ -200,17 +186,20 @@ fn send_matrix_pixels(matrix: &mut Matrix) {
         }
     }
 
-    matrix.i2c.set_slave_address(MATRIX_ADDRESS).unwrap();
-    matrix.i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    matrix.i2c.smbus_write_byte(0xfd, 0x00).unwrap();
-    matrix.i2c.write(&data[..181]).unwrap();
+    matrix.api_client.enqueue_i2c(vec![
+        I2cOperation::SetAddress(MATRIX_ADDRESS),
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x00),
+        I2cOperation::Write(data[..181].to_vec()),
+    ]);
     data[180] = 0x00;
-    matrix.i2c.smbus_write_byte(0xfe, 0xc5).unwrap();
-    matrix.i2c.smbus_write_byte(0xfd, 0x01).unwrap();
-    matrix.i2c.write(&data[180..]).unwrap();
+    matrix.api_client.enqueue_i2c(vec![
+        I2cOperation::WriteByte(0xfe, 0xc5),
+        I2cOperation::WriteByte(0xfd, 0x01),
+        I2cOperation::Write(data[180..].to_vec()),
+    ]);
 }
 
-#[cfg(feature = "pi")]
 const LED_GAMMA: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2,
     2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 11,
@@ -225,10 +214,8 @@ const LED_GAMMA: [u8; 256] = [
     216, 218, 220, 222, 224, 227, 229, 231, 233, 235, 237, 239, 241, 244, 246, 248, 250, 252, 255,
 ];
 
-#[cfg(feature = "pi")]
 static ROW_LOOKUP: [u16; 9] = [8, 5, 4, 3, 2, 1, 0, 7, 6];
 
-#[cfg(feature = "pi")]
 fn get_pixel_addresses(x: u16, y: u16) -> (usize, usize, usize) {
     let row = ROW_LOOKUP[y as usize];
 
