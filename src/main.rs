@@ -73,7 +73,7 @@ fn main() {
     let mut state = init(&mut rl, &thread, api_client.clone());
 
     while !rl.window_should_close() && rl.get_time() < 82700 as f64 {
-        lib::macropad::open_macropad(&mut state.macropad);
+        state.macropad.open_serial();
 
         update(&mut state, &mut rl, &thread);
 
@@ -313,7 +313,7 @@ impl LibApiClient for ApiClient {
     }
 
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>) {
-        self.i2c_tx.as_ref().unwrap().send(operations);
+        self.i2c_tx.as_ref().unwrap().send(operations).unwrap();
     }
 }
 

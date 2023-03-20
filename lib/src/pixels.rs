@@ -16,114 +16,140 @@ pub struct Pixels {
     shim_enabled: bool,
 }
 
-pub fn init(api_client: std::rc::Rc<dyn super::ApiClient>) -> Pixels {
-    api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(LED_SHIM_ADDRESS),
-        I2cOperation::WriteByte(0xfd, 0x0b),
-        I2cOperation::WriteByte(0x00, 0x00),
-        I2cOperation::WriteByte(0x06, 0x00),
-    ]);
+impl Pixels {
+    pub fn new(api_client: std::rc::Rc<dyn super::ApiClient>) -> Self {
+        api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(LED_SHIM_ADDRESS),
+            I2cOperation::WriteByte(0xfd, 0x0b),
+            I2cOperation::WriteByte(0x00, 0x00),
+            I2cOperation::WriteByte(0x06, 0x00),
+        ]);
 
-    turn_on_shim(&api_client);
+        turn_on_shim(&api_client);
 
-    api_client.enqueue_i2c(vec![
-        I2cOperation::WriteByte(0xfd, 0x00),
-        I2cOperation::WriteByte(0x00, 0x00),
-        I2cOperation::WriteByte(0x01, 0xbf),
-        I2cOperation::WriteByte(0x02, 0x3e),
-        I2cOperation::WriteByte(0x03, 0x3e),
-        I2cOperation::WriteByte(0x04, 0x3f),
-        I2cOperation::WriteByte(0x05, 0xbe),
-        I2cOperation::WriteByte(0x06, 0x07),
-        I2cOperation::WriteByte(0x07, 0x86),
-        I2cOperation::WriteByte(0x08, 0x30),
-        I2cOperation::WriteByte(0x09, 0x30),
-        I2cOperation::WriteByte(0x0a, 0x3f),
-        I2cOperation::WriteByte(0x0b, 0xbe),
-        I2cOperation::WriteByte(0x0c, 0x3f),
-        I2cOperation::WriteByte(0x0d, 0xbe),
-        I2cOperation::WriteByte(0x0e, 0x7f),
-        I2cOperation::WriteByte(0x0f, 0xfe),
-        I2cOperation::WriteByte(0x10, 0x7f),
-        I2cOperation::WriteByte(0x11, 0x00),
-    ]);
+        api_client.enqueue_i2c(vec![
+            I2cOperation::WriteByte(0xfd, 0x00),
+            I2cOperation::WriteByte(0x00, 0x00),
+            I2cOperation::WriteByte(0x01, 0xbf),
+            I2cOperation::WriteByte(0x02, 0x3e),
+            I2cOperation::WriteByte(0x03, 0x3e),
+            I2cOperation::WriteByte(0x04, 0x3f),
+            I2cOperation::WriteByte(0x05, 0xbe),
+            I2cOperation::WriteByte(0x06, 0x07),
+            I2cOperation::WriteByte(0x07, 0x86),
+            I2cOperation::WriteByte(0x08, 0x30),
+            I2cOperation::WriteByte(0x09, 0x30),
+            I2cOperation::WriteByte(0x0a, 0x3f),
+            I2cOperation::WriteByte(0x0b, 0xbe),
+            I2cOperation::WriteByte(0x0c, 0x3f),
+            I2cOperation::WriteByte(0x0d, 0xbe),
+            I2cOperation::WriteByte(0x0e, 0x7f),
+            I2cOperation::WriteByte(0x0f, 0xfe),
+            I2cOperation::WriteByte(0x10, 0x7f),
+            I2cOperation::WriteByte(0x11, 0x00),
+        ]);
 
-    for i in 0x24..0xB4 {
-        api_client.enqueue_i2c(vec![I2cOperation::WriteByte(i, 0x00)])
-    }
+        for i in 0x24..0xB4 {
+            api_client.enqueue_i2c(vec![I2cOperation::WriteByte(i, 0x00)])
+        }
 
-    turn_off_shim(&api_client);
+        turn_off_shim(&api_client);
 
-    Pixels {
-        pixels: [Color::BLACK; PIXEL_COUNT],
-        pixels_updated: false,
-        enabled: false,
-        brightness: 1.0,
-        fade_speed: 5.0,
-        fade_frequency: 0.2,
-        api_client,
-        shim_enabled: false,
-    }
-}
-
-pub fn update(pixels: &mut Pixels, context: &Context, _rl: &RaylibHandle) {
-    if pixels.enabled {
-        for i in 0..pixels.pixels.len() {
-            set_pixel(
-                pixels,
-                i,
-                Color::color_from_hsv(context.time as f32 * 90.0 + i as f32 * 2.0, 1.0, 1.0).fade(
-                    ((context.time as f32 * pixels.fade_speed + i as f32 * pixels.fade_frequency)
-                        .sin()
-                        + 1.0)
-                        / 2.0
-                        * 0.15,
-                ),
-            );
+        Self {
+            pixels: [Color::BLACK; PIXEL_COUNT],
+            pixels_updated: false,
+            enabled: false,
+            brightness: 1.0,
+            fade_speed: 5.0,
+            fade_frequency: 0.2,
+            api_client,
+            shim_enabled: false,
         }
     }
 
-    if pixels.pixels_updated {
-        pixels.pixels_updated = false;
-
-        if pixels.enabled && !pixels.shim_enabled {
-            turn_on_shim(&pixels.api_client);
-            pixels.shim_enabled = true;
+    pub fn update(&mut self, context: &Context, _rl: &RaylibHandle) {
+        if self.enabled {
+            for i in 0..self.pixels.len() {
+                self.set_pixel(
+                    i,
+                    Color::color_from_hsv(context.time as f32 * 90.0 + i as f32 * 2.0, 1.0, 1.0)
+                        .fade(
+                            ((context.time as f32 * self.fade_speed
+                                + i as f32 * self.fade_frequency)
+                                .sin()
+                                + 1.0)
+                                / 2.0
+                                * 0.15,
+                        ),
+                );
+            }
         }
 
-        if !pixels.enabled && pixels.shim_enabled {
-            turn_off_shim(&pixels.api_client);
-            pixels.shim_enabled = false;
-        }
+        if self.pixels_updated {
+            self.pixels_updated = false;
 
-        send_shim_pixels(pixels);
+            if self.enabled && !self.shim_enabled {
+                turn_on_shim(&self.api_client);
+                self.shim_enabled = true;
+            }
+
+            if !self.enabled && self.shim_enabled {
+                turn_off_shim(&self.api_client);
+                self.shim_enabled = false;
+            }
+
+            self.send_shim_pixels();
+        }
     }
-}
 
-fn set_pixel(pixels: &mut Pixels, index: usize, color: Color) {
-    pixels.pixels_updated = true;
-    pixels.pixels[index] = color;
-}
+    fn set_pixel(&mut self, index: usize, color: Color) {
+        self.pixels_updated = true;
+        self.pixels[index] = color;
+    }
 
-pub fn set_enabled(pixels: &mut Pixels, enabled: bool) {
-    pixels.pixels_updated = true;
-    pixels.enabled = enabled;
-}
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.pixels_updated = true;
+        self.enabled = enabled;
+    }
 
-pub fn draw(pixels: &Pixels, _context: &Context, d: &mut RaylibDrawHandle) {
-    #[cfg(not(feature = "pi"))]
-    {
-        d.draw_rectangle(10, 300, 12 * pixels.pixels.len() as i32, 8, Color::BLACK);
+    pub fn draw(&self, _context: &Context, d: &mut RaylibDrawHandle) {
+        #[cfg(not(feature = "pi"))]
+        {
+            d.draw_rectangle(10, 300, 12 * self.pixels.len() as i32, 8, Color::BLACK);
 
-        for i in 0..pixels.pixels.len() {
-            d.draw_rectangle(
-                10 + i as i32 * 12,
-                300,
-                8,
-                8,
-                pixels.pixels[i].fade(pixels.pixels[i].a as f32 / 255.0 * 10.0 * pixels.brightness),
-            );
+            for i in 0..self.pixels.len() {
+                d.draw_rectangle(
+                    10 + i as i32 * 12,
+                    300,
+                    8,
+                    8,
+                    self.pixels[i]
+                        .fade(self.pixels[i].a as f32 / 255.0 * 10.0 * self.brightness),
+                );
+            }
         }
+    }
+
+    fn send_shim_pixels(&mut self) {
+        let mut data: [u8; 145] = [0; 145];
+        data[0] = 0x24;
+
+        for i in 0..PIXEL_COUNT {
+            data[1 + LED_OFFSET[i][0]] =
+                LED_GAMMA[(self.pixels[i].r as f32 * self.pixels[i].a as f32 / 255.0
+                    * self.brightness) as usize];
+            data[1 + LED_OFFSET[i][1]] =
+                LED_GAMMA[(self.pixels[i].g as f32 * self.pixels[i].a as f32 / 255.0
+                    * self.brightness) as usize];
+            data[1 + LED_OFFSET[i][2]] =
+                LED_GAMMA[(self.pixels[i].b as f32 * self.pixels[i].a as f32 / 255.0
+                    * self.brightness) as usize];
+        }
+
+        self.api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(LED_SHIM_ADDRESS),
+            I2cOperation::Write(data.to_vec()),
+        ]);
     }
 }
 
@@ -146,28 +172,6 @@ fn turn_off_shim(api_client: &std::rc::Rc<dyn super::ApiClient>) {
     api_client.enqueue_i2c(vec![
         I2cOperation::WriteByte(0xfd, 0x0b),
         I2cOperation::WriteByte(0x0a, 0x00),
-    ]);
-}
-
-fn send_shim_pixels(pixels: &mut Pixels) {
-    let mut data: [u8; 145] = [0; 145];
-    data[0] = 0x24;
-
-    for i in 0..PIXEL_COUNT {
-        data[1 + LED_OFFSET[i][0]] =
-            LED_GAMMA[(pixels.pixels[i].r as f32 * pixels.pixels[i].a as f32 / 255.0
-                * pixels.brightness) as usize];
-        data[1 + LED_OFFSET[i][1]] =
-            LED_GAMMA[(pixels.pixels[i].g as f32 * pixels.pixels[i].a as f32 / 255.0
-                * pixels.brightness) as usize];
-        data[1 + LED_OFFSET[i][2]] =
-            LED_GAMMA[(pixels.pixels[i].b as f32 * pixels.pixels[i].a as f32 / 255.0
-                * pixels.brightness) as usize];
-    }
-
-    pixels.api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(LED_SHIM_ADDRESS),
-        I2cOperation::Write(data.to_vec()),
     ]);
 }
 

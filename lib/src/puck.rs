@@ -23,6 +23,7 @@ pub struct Puck {
     destination_render_texture: RenderTexture2D,
     seed_texture: Option<Texture2D>,
 
+    #[cfg(feature = "pi")]
     api_client: Rc<dyn super::ApiClient>,
 
     font: Font,
@@ -34,122 +35,214 @@ pub struct Puck {
     frame_time_since_last_check: Option<f32>,
 }
 
-pub fn init(
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-    api_client: Rc<dyn super::ApiClient>,
-) -> Puck {
-    let source_render_texture = rl
-        .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
-        .unwrap();
+impl Puck {
+    pub fn new(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        api_client: Rc<dyn super::ApiClient>,
+    ) -> Self {
+        let source_render_texture = rl
+            .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
+            .unwrap();
 
-    let destination_render_texture = rl
-        .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
-        .unwrap();
+        let destination_render_texture = rl
+            .load_render_texture(thread, GAME_OF_LIFE_SIZE, GAME_OF_LIFE_SIZE)
+            .unwrap();
 
-    let image_path = "game_of_life.png";
+        let image_path = "game_of_life.png";
 
-    let mut image = if Path::new(image_path).exists() {
-        let existing_image = Image::load_image(image_path).unwrap();
-        log::debug!("loaded existing image");
-        existing_image
-    } else {
-        let new_image =
-            Image::gen_image_white_noise(GAME_OF_LIFE_SIZE as i32, GAME_OF_LIFE_SIZE as i32, 0.5);
-        new_image.export_image("game_of_life_initial.png");
-        log::debug!("created new image");
-        new_image
-    };
+        let mut image = if Path::new(image_path).exists() {
+            let existing_image = Image::load_image(image_path).unwrap();
+            log::debug!("loaded existing image");
+            existing_image
+        } else {
+            let new_image = Image::gen_image_white_noise(
+                GAME_OF_LIFE_SIZE as i32,
+                GAME_OF_LIFE_SIZE as i32,
+                0.5,
+            );
+            new_image.export_image("game_of_life_initial.png");
+            log::debug!("created new image");
+            new_image
+        };
 
-    image.flip_horizontal();
-    image.rotate_cw();
-    image.rotate_cw();
+        image.flip_horizontal();
+        image.rotate_cw();
+        image.rotate_cw();
 
-    Puck {
-        game_of_life_shader: load_game_of_life_shader(rl, thread),
-        source_render_texture,
-        destination_render_texture,
-        seed_texture: Some(rl.load_texture_from_image(thread, &image).unwrap()),
+        Self {
+            game_of_life_shader: load_game_of_life_shader(rl, thread),
+            source_render_texture,
+            destination_render_texture,
+            seed_texture: Some(rl.load_texture_from_image(thread, &image).unwrap()),
 
-        api_client,
+            #[cfg(feature = "pi")]
+            api_client,
 
-        font: rl
-            .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
-            .unwrap(),
-        image_texture: rl
-            .load_texture_from_image(
-                thread,
-                &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
-            )
-            .unwrap(),
-        puck_texture: rl
-            .load_texture_from_image(
-                thread,
-                &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
-            )
-            .unwrap(),
-        current_date: None,
-        current_date_string: None,
-        last_date_string: match std::fs::read("date.txt") {
-            Ok(data) => Some(String::from_utf8(data).unwrap()),
-            Err(_) => None,
-        },
-        frame_time_since_last_check: None,
-    }
-}
-
-pub fn update(puck: &mut Puck, context: &Context, rl: &mut RaylibHandle, thread: &RaylibThread) {
-    if puck.frame_time_since_last_check.is_none()
-        || puck.frame_time_since_last_check.unwrap() > 60.0
-    {
-        puck.current_date = Some(chrono::Local::now());
-        puck.current_date_string = Some(format!("{}", puck.current_date.unwrap().format("%m-%d")));
+            font: rl
+                .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
+                .unwrap(),
+            image_texture: rl
+                .load_texture_from_image(
+                    thread,
+                    &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
+                )
+                .unwrap(),
+            puck_texture: rl
+                .load_texture_from_image(
+                    thread,
+                    &Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE),
+                )
+                .unwrap(),
+            current_date: None,
+            current_date_string: None,
+            last_date_string: match std::fs::read("date.txt") {
+                Ok(data) => Some(String::from_utf8(data).unwrap()),
+                Err(_) => None,
+            },
+            frame_time_since_last_check: None,
+        }
     }
 
-    puck.frame_time_since_last_check =
-        Some(puck.frame_time_since_last_check.unwrap_or(0.0) + rl.get_frame_time());
-}
+    pub fn update(&mut self, context: &Context, rl: &mut RaylibHandle, thread: &RaylibThread) {
+        if self.frame_time_since_last_check.is_none()
+            || self.frame_time_since_last_check.unwrap() > 60.0
+        {
+            self.current_date = Some(chrono::Local::now());
+            self.current_date_string =
+                Some(format!("{}", self.current_date.unwrap().format("%m-%d")));
+        }
 
-pub fn draw(puck: &mut Puck, context: &Context, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
-    if puck.last_date_string.is_none()
-        || puck.last_date_string.as_ref().unwrap() != puck.current_date_string.as_ref().unwrap()
-        || super::input::is_key_pressed(context, KeyboardKey::KEY_TWO)
-    {
-        puck.last_date_string = puck.current_date_string.clone();
-        fs::write("date.txt", puck.last_date_string.as_ref().unwrap()).unwrap();
-
-        let mut image = generate_image(puck, puck.current_date.unwrap(), d, thread);
-
-        update_texture_with_image(&mut puck.image_texture, &image);
-
-        image.color_grayscale();
-        image.color_brightness(-30);
-
-        let mut puck_image = image.clone();
-        puck_image.rotate_ccw();
-        puck_image.dither(2, 2, 2, 2);
-
-        #[cfg(feature = "pi")]
-        puck.api_client
-            .send_puck_image(convert_to_puck_image(&puck_image));
-
-        image.dither(2, 2, 2, 2);
-        let converted_image = convert_puck_dithered_image(&image);
-
-        update_texture_with_image(&mut puck.puck_texture, &converted_image);
+        self.frame_time_since_last_check =
+            Some(self.frame_time_since_last_check.unwrap_or(0.0) + rl.get_frame_time());
     }
 
-    #[cfg(not(feature = "pi"))]
-    {
-        d.draw_texture(&puck.image_texture, 260, 10, Color::WHITE);
-        d.draw_rectangle(
-            260,
-            150,
-            IMAGE_WIDTH as i32 + 4,
-            IMAGE_HEIGHT as i32 + 4,
-            Color::GRAY,
+    pub fn draw(&mut self, context: &Context, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
+        if self.last_date_string.is_none()
+            || self.last_date_string.as_ref().unwrap() != self.current_date_string.as_ref().unwrap()
+            || context.input.is_key_pressed(KeyboardKey::KEY_TWO)
+        {
+            self.last_date_string = self.current_date_string.clone();
+            fs::write("date.txt", self.last_date_string.as_ref().unwrap()).unwrap();
+
+            let mut image = self.generate_image(self.current_date.unwrap(), d, thread);
+
+            update_texture_with_image(&mut self.image_texture, &image);
+
+            image.color_grayscale();
+            image.color_brightness(-30);
+
+            let mut puck_image = image.clone();
+            puck_image.rotate_ccw();
+            puck_image.dither(2, 2, 2, 2);
+
+            #[cfg(feature = "pi")]
+            self.api_client
+                .send_puck_image(convert_to_puck_image(&puck_image));
+
+            image.dither(2, 2, 2, 2);
+            let converted_image = convert_puck_dithered_image(&image);
+
+            update_texture_with_image(&mut self.puck_texture, &converted_image);
+        }
+
+        #[cfg(not(feature = "pi"))]
+        {
+            d.draw_texture(&self.image_texture, 260, 10, Color::WHITE);
+            d.draw_rectangle(
+                260,
+                150,
+                IMAGE_WIDTH as i32 + 4,
+                IMAGE_HEIGHT as i32 + 4,
+                Color::GRAY,
+            );
+            d.draw_texture(&self.puck_texture, 262, 152, Color::WHITE);
+        }
+    }
+
+    fn generate_image(
+        &mut self,
+        current_date: chrono::DateTime<chrono::Local>,
+        d: &mut RaylibDrawHandle,
+        thread: &RaylibThread,
+    ) -> Image {
+        if self.seed_texture.is_some() {
+            {
+                let mut texture_mode =
+                    d.begin_texture_mode(thread, &mut self.source_render_texture);
+                texture_mode.draw_texture(self.seed_texture.as_ref().unwrap(), 0, 0, Color::WHITE);
+            }
+            self.seed_texture = None;
+        }
+
+        {
+            let mut texture_mode =
+                d.begin_texture_mode(thread, &mut self.destination_render_texture);
+            let mut shader_mode = texture_mode.begin_shader_mode(&self.game_of_life_shader);
+
+            shader_mode.draw_texture(&self.source_render_texture, 0, 0, Color::WHITE)
+        }
+
+        let mut render_image = self.destination_render_texture.get_texture_data().unwrap();
+
+        mem::swap(
+            &mut self.source_render_texture,
+            &mut self.destination_render_texture,
         );
-        d.draw_texture(&puck.puck_texture, 262, 152, Color::WHITE);
+
+        render_image.export_image("game_of_life.png");
+
+        render_image.color_invert();
+        render_image.color_brightness(30);
+
+        let mut image =
+            Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
+
+        let render_rectangle = Rectangle::new(
+            0.0,
+            0.0,
+            render_image.width() as f32,
+            render_image.height() as f32,
+        );
+
+        image.draw(
+            &render_image,
+            render_rectangle,
+            render_rectangle,
+            Color::WHITE,
+        );
+        image.draw_rectangle(
+            0,
+            IMAGE_HEIGHT as i32 - 10,
+            IMAGE_WIDTH as i32,
+            10,
+            Color::color_from_hsv(0.0, 0.0, 0.63),
+        );
+        image.draw_rectangle(0, IMAGE_HEIGHT as i32 - 10, 50, 10, Color::BLACK);
+
+        let date_string = format!("{}", current_date.format("%m-%d"));
+
+        let size = measure_text_ex(&self.font, &date_string, 80.0, 0.0);
+
+        image.draw_text_ex(
+            &self.font,
+            &date_string,
+            Vector2::new(5.0, 138.0 - size.y - 10.0),
+            80.0,
+            0.0,
+            Color::BLACK,
+        );
+
+        image
+    }
+
+    #[cfg(feature = "reloader")]
+    pub fn handle_reload(
+        &mut self,
+        rl: &mut raylib::RaylibHandle,
+        thread: &raylib::RaylibThread,
+    ) {
+        self.game_of_life_shader = load_game_of_life_shader(rl, thread);
     }
 }
 
@@ -211,88 +304,6 @@ fn update_texture_with_image(texture: &mut Texture2D, image: &Image) {
             image.get_pixel_data_size(),
         ));
     }
-}
-
-fn generate_image(
-    puck: &mut Puck,
-    current_date: chrono::DateTime<chrono::Local>,
-    d: &mut RaylibDrawHandle,
-    thread: &RaylibThread,
-) -> Image {
-    if puck.seed_texture.is_some() {
-        {
-            let mut texture_mode = d.begin_texture_mode(thread, &mut puck.source_render_texture);
-            texture_mode.draw_texture(puck.seed_texture.as_ref().unwrap(), 0, 0, Color::WHITE);
-        }
-        puck.seed_texture = None;
-    }
-
-    {
-        let mut texture_mode = d.begin_texture_mode(thread, &mut puck.destination_render_texture);
-        let mut shader_mode = texture_mode.begin_shader_mode(&puck.game_of_life_shader);
-
-        shader_mode.draw_texture(&puck.source_render_texture, 0, 0, Color::WHITE)
-    }
-
-    let mut render_image = puck.destination_render_texture.get_texture_data().unwrap();
-
-    mem::swap(
-        &mut puck.source_render_texture,
-        &mut puck.destination_render_texture,
-    );
-
-    render_image.export_image("game_of_life.png");
-
-    render_image.color_invert();
-    render_image.color_brightness(30);
-
-    let mut image = Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
-
-    let render_rectangle = Rectangle::new(
-        0.0,
-        0.0,
-        render_image.width() as f32,
-        render_image.height() as f32,
-    );
-
-    image.draw(
-        &render_image,
-        render_rectangle,
-        render_rectangle,
-        Color::WHITE,
-    );
-    image.draw_rectangle(
-        0,
-        IMAGE_HEIGHT as i32 - 10,
-        IMAGE_WIDTH as i32,
-        10,
-        Color::color_from_hsv(0.0, 0.0, 0.63),
-    );
-    image.draw_rectangle(0, IMAGE_HEIGHT as i32 - 10, 50, 10, Color::BLACK);
-
-    let date_string = format!("{}", current_date.format("%m-%d"));
-
-    let size = measure_text_ex(&puck.font, &date_string, 80.0, 0.0);
-
-    image.draw_text_ex(
-        &puck.font,
-        &date_string,
-        Vector2::new(5.0, 138.0 - size.y - 10.0),
-        80.0,
-        0.0,
-        Color::BLACK,
-    );
-
-    image
-}
-
-#[cfg(feature = "reloader")]
-pub fn handle_reload(
-    puck: &mut Puck,
-    rl: &mut raylib::RaylibHandle,
-    thread: &raylib::RaylibThread,
-) {
-    puck.game_of_life_shader = load_game_of_life_shader(rl, thread);
 }
 
 fn load_game_of_life_shader(rl: &mut RaylibHandle, thread: &RaylibThread) -> Shader {

@@ -3,6 +3,8 @@ use raylib::prelude::*;
 
 const MATRIX_ADDRESS: u16 = 0x30;
 
+static TEXT: &str = "Hello World!";
+
 pub struct Matrix {
     image: Image,
     scroll_position: f32,
@@ -12,192 +14,190 @@ pub struct Matrix {
     driver_enabled: bool,
 }
 
-pub fn init(
-    rl: &mut raylib::RaylibHandle,
-    thread: &raylib::RaylibThread,
-    api_client: std::rc::Rc<dyn super::ApiClient>,
-) -> Matrix {
-    let mut image = Image::gen_image_checked(13, 9, 1, 1, Color::BLACK, Color::WHITE);
+impl Matrix {
+    pub fn new(
+        _rl: &mut raylib::RaylibHandle,
+        _thread: &raylib::RaylibThread,
+        api_client: std::rc::Rc<dyn super::ApiClient>,
+    ) -> Self {
+        let mut scaling = [0x20; 181];
+        scaling[0] = 0x00;
 
-    let mut scaling = [0x20; 181];
-    scaling[0] = 0x00;
+        let zero_pixels = [0x00; 181];
 
-    let zero_pixels = [0x00; 181];
+        api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(MATRIX_ADDRESS),
+            // Reset
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x04),
+            I2cOperation::WriteByte(0x3f, 0xae),
+            I2cOperation::WriteByte(0x01, 0x03),
+            // Set scaling
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x02),
+            I2cOperation::Write(scaling.to_vec()),
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x03),
+            I2cOperation::Write(scaling[..172].to_vec()),
+            // Enable
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x04),
+            I2cOperation::WriteByte(0x00, 0x01),
+            // Clear
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x00),
+            I2cOperation::Write(zero_pixels.to_vec()),
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x01),
+            I2cOperation::Write(zero_pixels[..172].to_vec()),
+            // Disable
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x04),
+            I2cOperation::WriteByte(0x00, 0x00),
+        ]);
 
-    api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(MATRIX_ADDRESS),
-        // Reset
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x04),
-        I2cOperation::WriteByte(0x3f, 0xae),
-        I2cOperation::WriteByte(0x01, 0x03),
-        // Set scaling
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x02),
-        I2cOperation::Write(scaling.to_vec()),
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x03),
-        I2cOperation::Write(scaling[..172].to_vec()),
-        // Enable
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x04),
-        I2cOperation::WriteByte(0x00, 0x01),
-        // Clear
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x00),
-        I2cOperation::Write(zero_pixels.to_vec()),
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x01),
-        I2cOperation::Write(zero_pixels[..172].to_vec()),
-        // Disable
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x04),
-        I2cOperation::WriteByte(0x00, 0x00),
-    ]);
-
-    Matrix {
-        image,
-        scroll_position: 0.0,
-        updated: false,
-        enabled: false,
-        driver_enabled: false,
-        api_client,
-    }
-}
-
-static TEXT: &str = "Hello World!";
-
-pub fn update(
-    matrix: &mut Matrix,
-    context: &Context,
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-) {
-    if matrix.enabled {
-        let text_width = measure_text(TEXT, 10);
-
-        matrix.scroll_position -= 20.0 * rl.get_frame_time();
-        if matrix.scroll_position < -text_width as f32 - 10.0 {
-            matrix.scroll_position = 0.0;
+        Self {
+            image: Image::gen_image_checked(13, 9, 1, 1, Color::BLACK, Color::WHITE),
+            scroll_position: 0.0,
+            updated: false,
+            enabled: false,
+            driver_enabled: false,
+            api_client,
         }
-
-        matrix.image.draw_rectangle(0, 0, 13, 9, Color::BLACK);
-        matrix.image.draw_text(
-            TEXT,
-            matrix.scroll_position as i32,
-            0,
-            10,
-            Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
-        );
-        let text_width = measure_text(TEXT, 10);
-        matrix.image.draw_text(
-            TEXT,
-            matrix.scroll_position as i32 + text_width + 10,
-            0,
-            10,
-            Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
-        );
-        matrix.updated = true;
     }
 
-    if matrix.updated {
-        matrix.updated = false;
+    pub fn update(
+        &mut self,
+        context: &Context,
+        rl: &mut RaylibHandle,
+        _thread: &RaylibThread,
+    ) {
+        if self.enabled {
+            let text_width = measure_text(TEXT, 10);
 
-        if matrix.enabled && !matrix.driver_enabled {
-            turn_on_matrix(matrix);
-            matrix.driver_enabled = true;
+            self.scroll_position -= 20.0 * rl.get_frame_time();
+            if self.scroll_position < -text_width as f32 - 10.0 {
+                self.scroll_position = 0.0;
+            }
+
+            self.image.draw_rectangle(0, 0, 13, 9, Color::BLACK);
+            self.image.draw_text(
+                TEXT,
+                self.scroll_position as i32,
+                0,
+                10,
+                Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
+            );
+            let text_width = measure_text(TEXT, 10);
+            self.image.draw_text(
+                TEXT,
+                self.scroll_position as i32 + text_width + 10,
+                0,
+                10,
+                Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
+            );
+            self.updated = true;
         }
 
-        if !matrix.enabled && matrix.driver_enabled {
-            turn_off_matrix(matrix);
-            matrix.driver_enabled = false;
-        }
+        if self.updated {
+            self.updated = false;
 
-        send_matrix_pixels(matrix);
+            if self.enabled && !self.driver_enabled {
+                self.turn_on();
+                self.driver_enabled = true;
+            }
+
+            if !self.enabled && self.driver_enabled {
+                self.turn_off();
+                self.driver_enabled = false;
+            }
+
+            self.send_matrix_pixels();
+        }
     }
-}
 
-pub fn draw(
-    matrix: &mut Matrix,
-    context: &Context,
-    d: &mut RaylibDrawHandle,
-    thread: &RaylibThread,
-) {
-    #[cfg(not(feature = "pi"))]
-    {
-        let data = matrix.image.get_image_data();
-        d.draw_rectangle(575, 10, 13 * 9, 9 * 9, Color::DARKGRAY);
-        for x in 0..13 {
-            for y in 0..9 {
-                d.draw_rectangle(575 + x * 9, 10 + y * 9, 6, 6, data[(y * 13 + x) as usize]);
+    pub fn draw(
+        &mut self,
+        _context: &Context,
+        d: &mut RaylibDrawHandle,
+        _thread: &RaylibThread,
+    ) {
+        #[cfg(not(feature = "pi"))]
+        {
+            let data = self.image.get_image_data();
+            d.draw_rectangle(575, 10, 13 * 9, 9 * 9, Color::DARKGRAY);
+            for x in 0..13 {
+                for y in 0..9 {
+                    d.draw_rectangle(575 + x * 9, 10 + y * 9, 6, 6, data[(y * 13 + x) as usize]);
+                }
             }
         }
     }
-}
 
-pub fn set_enabled(matrix: &mut Matrix, enabled: bool) {
-    matrix.updated = true;
-    matrix.enabled = enabled;
-}
-
-fn turn_on_matrix(matrix: &mut Matrix) {
-    matrix.api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(MATRIX_ADDRESS),
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x04),
-        I2cOperation::WriteByte(0x00, 0x01),
-    ]);
-}
-
-fn turn_off_matrix(matrix: &mut Matrix) {
-    let zero_pixels = [0x00; 181];
-
-    matrix.api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(MATRIX_ADDRESS),
-        // Clear
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x00),
-        I2cOperation::Write(zero_pixels.to_vec()),
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x01),
-        I2cOperation::Write(zero_pixels[..172].to_vec()),
-        // Disable
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x04),
-        I2cOperation::WriteByte(0x00, 0x00),
-    ]);
-}
-
-fn send_matrix_pixels(matrix: &mut Matrix) {
-    let image_data = matrix.image.get_image_data();
-
-    let mut data: [u8; 352] = [0; 352];
-    data[0] = 0x00;
-
-    for x in 0..13 {
-        for y in 0..9 {
-            let flipped_x = 12 - x;
-            let flipped_y = 8 - y;
-            let (r_address, g_address, b_address) = get_pixel_addresses(x, y);
-            let color = image_data[(flipped_y * 13 + flipped_x) as usize];
-            data[1 + r_address] = LED_GAMMA[(color.r as f32 * color.a as f32 / 255.0) as usize];
-            data[1 + g_address] = LED_GAMMA[(color.g as f32 * color.a as f32 / 255.0) as usize];
-            data[1 + b_address] = LED_GAMMA[(color.b as f32 * color.a as f32 / 255.0) as usize];
-        }
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.updated = true;
+        self.enabled = enabled;
     }
 
-    matrix.api_client.enqueue_i2c(vec![
-        I2cOperation::SetAddress(MATRIX_ADDRESS),
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x00),
-        I2cOperation::Write(data[..181].to_vec()),
-    ]);
-    data[180] = 0x00;
-    matrix.api_client.enqueue_i2c(vec![
-        I2cOperation::WriteByte(0xfe, 0xc5),
-        I2cOperation::WriteByte(0xfd, 0x01),
-        I2cOperation::Write(data[180..].to_vec()),
-    ]);
+    fn turn_on(&mut self) {
+        self.api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(MATRIX_ADDRESS),
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x04),
+            I2cOperation::WriteByte(0x00, 0x01),
+        ]);
+    }
+
+    fn turn_off(&mut self) {
+        let zero_pixels = [0x00; 181];
+
+        self.api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(MATRIX_ADDRESS),
+            // Clear
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x00),
+            I2cOperation::Write(zero_pixels.to_vec()),
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x01),
+            I2cOperation::Write(zero_pixels[..172].to_vec()),
+            // Disable
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x04),
+            I2cOperation::WriteByte(0x00, 0x00),
+        ]);
+    }
+
+    fn send_matrix_pixels(&mut self) {
+        let image_data = self.image.get_image_data();
+
+        let mut data: [u8; 352] = [0; 352];
+        data[0] = 0x00;
+
+        for x in 0..13 {
+            for y in 0..9 {
+                let flipped_x = 12 - x;
+                let flipped_y = 8 - y;
+                let (r_address, g_address, b_address) = get_pixel_addresses(x, y);
+                let color = image_data[(flipped_y * 13 + flipped_x) as usize];
+                data[1 + r_address] = LED_GAMMA[(color.r as f32 * color.a as f32 / 255.0) as usize];
+                data[1 + g_address] = LED_GAMMA[(color.g as f32 * color.a as f32 / 255.0) as usize];
+                data[1 + b_address] = LED_GAMMA[(color.b as f32 * color.a as f32 / 255.0) as usize];
+            }
+        }
+
+        self.api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(MATRIX_ADDRESS),
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x00),
+            I2cOperation::Write(data[..181].to_vec()),
+        ]);
+        data[180] = 0x00;
+        self.api_client.enqueue_i2c(vec![
+            I2cOperation::WriteByte(0xfe, 0xc5),
+            I2cOperation::WriteByte(0xfd, 0x01),
+            I2cOperation::Write(data[180..].to_vec()),
+        ]);
+    }
 }
 
 const LED_GAMMA: [u8; 256] = [

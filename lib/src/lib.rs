@@ -1,4 +1,11 @@
 use raylib::prelude::*;
+use backlight::Backlight;
+use earth::Earth;
+use input::Input;
+use macropad::MacroPad;
+use matrix::Matrix;
+use pixels::Pixels;
+use puck::Puck;
 
 mod backlight;
 mod earth;
@@ -67,43 +74,43 @@ pub fn init(
     State {
         context: Context {
             time: 0.0,
-            input: input::init(),
+            input: Input::new(),
             screen_enabled: false,
         },
-        pixels: pixels::init(api_client.clone()),
-        macropad: macropad::init(api_client.clone()),
-        backlight: backlight::init(),
-        puck: puck::init(rl, thread, api_client.clone()),
-        earth: earth::init(rl, thread, api_client.clone()),
-        matrix: matrix::init(rl, thread, api_client.clone()),
+        pixels: Pixels::new(api_client.clone()),
+        macropad: MacroPad::new(api_client.clone()),
+        backlight: Backlight::new(),
+        puck: Puck::new(rl, thread, api_client.clone()),
+        earth: Earth::new(rl, thread, api_client.clone()),
+        matrix: Matrix::new(rl, thread, api_client.clone()),
     }
 }
 
 #[no_mangle]
 pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) {
     state.context.time = rl.get_time();
-    input::update(&mut state.context.input, rl);
+    state.context.input.update(rl);
 
-    if input::is_key_pressed(&state.context, KeyboardKey::KEY_X) {
-        pixels::set_enabled(&mut state.pixels, true);
-        matrix::set_enabled(&mut state.matrix, true);
-        backlight::set_enabled(&mut state.backlight, true);
+    if state.context.input.is_key_pressed(KeyboardKey::KEY_X) {
+        state.pixels.set_enabled(true);
+        state.matrix.set_enabled(true);
+        state.backlight.set_enabled(true);
         state.context.screen_enabled = true;
     }
 
-    if input::is_key_pressed(&state.context, KeyboardKey::KEY_Y) {
-        pixels::set_enabled(&mut state.pixels, false);
-        matrix::set_enabled(&mut state.matrix, false);
-        backlight::set_enabled(&mut state.backlight, false);
+    if state.context.input.is_key_pressed(KeyboardKey::KEY_Y) {
+        state.pixels.set_enabled(false);
+        state.matrix.set_enabled(false);
+        state.backlight.set_enabled(false);
         state.context.screen_enabled = false;
     }
 
-    pixels::update(&mut state.pixels, &state.context, rl);
-    matrix::update(&mut state.matrix, &state.context, rl, thread);
+    state.pixels.update(&state.context, rl);
+    state.matrix.update(&state.context, rl, thread);
 
-    macropad::update(&mut state.macropad, &state.context, rl);
-    puck::update(&mut state.puck, &state.context, rl, thread);
-    earth::update(&mut state.earth, &state.context, rl, thread);
+    state.macropad.update(&state.context, rl);
+    state.puck.update(&state.context, rl, thread);
+    state.earth.update(&state.context, rl, thread);
 }
 
 #[no_mangle]
@@ -114,22 +121,22 @@ pub fn draw(
 ) {
     d.clear_background(Color::BLACK);
 
-    pixels::draw(&state.pixels, &state.context, d);
-    macropad::draw(&state.macropad, &state.context, d);
-    puck::draw(&mut state.puck, &state.context, d, thread);
-    earth::draw(&mut state.earth, &state.context, d, thread);
-    matrix::draw(&mut state.matrix, &state.context, d, thread);
+    state.pixels.draw(&state.context, d);
+    state.macropad.draw(&state.context, d);
+    state.puck.draw(&state.context, d, thread);
+    state.earth.draw(&state.context, d, thread);
+    state.matrix.draw(&state.context, d, thread);
 
-    if input::is_key_down(&state.context, KeyboardKey::KEY_ONE) {
+    if state.context.input.is_key_down(KeyboardKey::KEY_ONE) {
         d.draw_rectangle_lines(0, 0, 240, 240, Color::ORANGE);
         d.draw_rectangle_lines(5, 5, 240 - 10, 240 - 10, Color::WHITE);
     }
 
-    if input::is_key_pressed(&state.context, KeyboardKey::KEY_ONE) {
+    if state.context.input.is_key_pressed(KeyboardKey::KEY_ONE) {
         d.draw_rectangle_lines(10, 10, 240 - 20, 240 - 20, Color::RED);
     }
 
-    if state.context.screen_enabled && input::is_key_down(&state.context, KeyboardKey::KEY_THREE) {
+    if state.context.screen_enabled && state.context.input.is_key_down(KeyboardKey::KEY_THREE) {
         d.draw_fps(0, 0);
     }
 }
@@ -141,5 +148,5 @@ pub fn handle_reload(
     rl: &mut raylib::RaylibHandle,
     thread: &raylib::RaylibThread,
 ) {
-    puck::handle_reload(&mut state.puck, rl, thread);
+    state.puck.handle_reload(rl, thread);
 }
