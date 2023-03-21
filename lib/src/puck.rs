@@ -104,7 +104,7 @@ impl Puck {
         }
     }
 
-    pub fn update(&mut self, context: &Context, rl: &mut RaylibHandle, thread: &RaylibThread) {
+    pub fn update(&mut self, _context: &Context, rl: &mut RaylibHandle, _thread: &RaylibThread) {
         if self.frame_time_since_last_check.is_none()
             || self.frame_time_since_last_check.unwrap() > 60.0
         {
@@ -246,6 +246,7 @@ impl Puck {
     }
 }
 
+#[cfg(feature = "pi")]
 fn convert_to_puck_image(image: &Image) -> PuckImage {
     let mut transfer_data = [0; PUCK_IMAGE_DATA_LENGTH];
 

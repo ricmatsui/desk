@@ -4,14 +4,12 @@ use packed_struct::prelude::*;
 #[cfg(feature = "pi")]
 use rppal::i2c::I2c;
 use std::{env, io::Read, rc::Rc, thread, time};
+use std::sync::mpsc;
 
 #[cfg(feature = "reloader")]
 use hot_lib::{draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation};
 #[cfg(not(feature = "reloader"))]
 use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation};
-
-#[cfg(feature = "reloader")]
-use std::sync::mpsc::channel;
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -28,29 +26,7 @@ fn main() {
     hot_lib::setup_logger(log::logger(), log::max_level()).unwrap();
 
     #[cfg(feature = "reloader")]
-    let (reload_tx, reload_rx) = channel();
-    #[cfg(feature = "reloader")]
-    let (exit_tx, exit_rx) = channel();
-    #[cfg(feature = "reloader")]
-    let reload_watcher = thread::spawn(move || {
-        let lib_observer = hot_lib::subscribe();
-
-        loop {
-            if let Some(update_blocker) =
-                lib_observer.wait_for_about_to_reload_timeout(time::Duration::from_millis(300))
-            {
-                reload_tx.send(0).unwrap();
-                drop(update_blocker);
-                lib_observer.wait_for_reload();
-                hot_lib::setup_logger(log::logger(), log::max_level()).unwrap();
-                reload_tx.send(0).unwrap();
-            }
-
-            if exit_rx.try_recv().is_ok() {
-                break;
-            }
-        }
-    });
+    let reload_watcher = ReloadWatcher::new();
 
     unsafe {
         raylib::ffi::SetTraceLogLevel(raylib::ffi::TraceLogLevel::LOG_TRACE as i32);
@@ -84,19 +60,13 @@ fn main() {
         }
 
         #[cfg(feature = "reloader")]
-        {
-            if reload_rx.try_recv().is_ok() {
-                reload_rx.recv().unwrap();
-                handle_reload(&mut state, &mut rl, &thread);
-            }
+        if reload_watcher.check_pending_reload() {
+            handle_reload(&mut state, &mut rl, &thread);
         }
     }
 
     #[cfg(feature = "reloader")]
-    {
-        exit_tx.send(0).unwrap();
-        reload_watcher.join().unwrap();
-    }
+    reload_watcher.stop();
 
     drop(state);
 
@@ -160,7 +130,7 @@ struct PuckImageCommand {
 #[derive(Debug)]
 struct ApiClient {
     request_agent: ureq::Agent,
-    i2c_tx: Option<std::sync::mpsc::SyncSender<Vec<I2cOperation>>>,
+    i2c_tx: Option<mpsc::SyncSender<Vec<I2cOperation>>>,
     i2c_thread: std::thread::JoinHandle<()>,
     puck_image_tx: Option<tokio::sync::mpsc::Sender<PuckImageCommand>>,
     bluetooth_thread: std::thread::JoinHandle<()>,
@@ -319,9 +289,9 @@ impl LibApiClient for ApiClient {
 
 fn start_i2c() -> (
     std::thread::JoinHandle<()>,
-    std::sync::mpsc::SyncSender<Vec<I2cOperation>>,
+    mpsc::SyncSender<Vec<I2cOperation>>,
 ) {
-    let (i2c_tx, i2c_rx) = std::sync::mpsc::sync_channel::<Vec<I2cOperation>>(100);
+    let (i2c_tx, i2c_rx) = mpsc::sync_channel::<Vec<I2cOperation>>(100);
 
     let thread = thread::spawn(move || {
         #[cfg(not(feature = "pi"))]
@@ -495,4 +465,59 @@ async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::Pu
     .await
     .unwrap();
     log::debug!(target: "bluetooth", "<- done");
+}
+
+#[cfg(feature = "reloader")]
+struct ReloadWatcher {
+    reload_rx: mpsc::Receiver<()>,
+    exit_tx: mpsc::Sender<()>,
+    watcher_thread: thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "reloader")]
+impl ReloadWatcher {
+    pub fn new() -> Self {
+        let (reload_tx, reload_rx) = mpsc::channel::<()>();
+        let (exit_tx, exit_rx) = mpsc::channel::<()>();
+
+        let watcher_thread = thread::spawn(move || {
+            let lib_observer = hot_lib::subscribe();
+
+            loop {
+                if let Some(update_blocker) =
+                    lib_observer.wait_for_about_to_reload_timeout(time::Duration::from_millis(300))
+                {
+                    reload_tx.send(()).unwrap();
+                    drop(update_blocker);
+                    lib_observer.wait_for_reload();
+                    hot_lib::setup_logger(log::logger(), log::max_level()).unwrap();
+                    reload_tx.send(()).unwrap();
+                }
+
+                if exit_rx.try_recv().is_ok() {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            reload_rx,
+            exit_tx,
+            watcher_thread,
+        }
+    }
+
+    pub fn check_pending_reload(&self) -> bool {
+        if self.reload_rx.try_recv().is_ok() {
+            self.reload_rx.recv().unwrap();
+            return true;
+        }
+
+        false
+    }
+
+    pub fn stop(self) {
+        self.exit_tx.send(()).unwrap();
+        self.watcher_thread.join().unwrap();
+    }
 }

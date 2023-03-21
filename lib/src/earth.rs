@@ -78,7 +78,7 @@ impl Earth {
         &mut self,
         context: &Context,
         rl: &mut RaylibHandle,
-        thread: &RaylibThread,
+        _thread: &RaylibThread,
     ) {
         if context.input.is_key_down(KeyboardKey::KEY_A) {
             self.ball_angular_velocity += 0.1;
