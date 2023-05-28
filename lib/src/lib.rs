@@ -28,10 +28,14 @@ pub trait ApiClient {
         method: &str,
         path: &str,
         body: Option<&json::JsonValue>,
-    ) -> json::JsonValue;
+    ) -> Result<json::JsonValue, TogglError>;
     fn send_puck_image(&self, image: puck::PuckImage);
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>);
+    fn send_wake_on_lan(&self);
 }
+
+#[derive(Debug, Clone)]
+pub struct TogglError;
 
 #[derive(Debug, Clone)]
 pub enum I2cOperation {

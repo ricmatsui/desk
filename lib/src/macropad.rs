@@ -1,4 +1,4 @@
-use super::Context;
+use super::{ApiClient, Context, TogglError};
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
 use std::rc::Rc;
@@ -8,11 +8,11 @@ pub struct MacroPad {
     serial_port: Option<Box<dyn SerialPort>>,
     input_buffer: Vec<u8>,
     output_buffer: Vec<u8>,
-    api_client: Rc<dyn super::ApiClient>,
+    api_client: Rc<dyn ApiClient>,
 }
 
 impl MacroPad {
-    pub fn new(api_client: Rc<dyn super::ApiClient>) -> Self {
+    pub fn new(api_client: Rc<dyn ApiClient>) -> Self {
         Self {
             serial_port: None,
             input_buffer: Vec::new(),
@@ -47,12 +47,17 @@ impl MacroPad {
             );
             self.input_buffer.clear();
             self.output_buffer.clear();
+            log::debug!("= connected");
         }
     }
 
-    pub fn update(&mut self, _context: &Context, _rl: &RaylibHandle) {
+    pub fn update(&mut self, context: &Context, _rl: &RaylibHandle) {
         self.update_buffers();
         self.process_input();
+
+        if context.input.is_key_pressed(KeyboardKey::KEY_ONE) {
+            self.api_client.send_wake_on_lan();
+        }
     }
 
     fn update_buffers(&mut self) {
@@ -70,6 +75,7 @@ impl MacroPad {
             }
             Err(e) => {
                 if e.kind() != io::ErrorKind::TimedOut {
+                    log::debug!("= error reading");
                     disconnected = true;
                 }
             }
@@ -78,6 +84,7 @@ impl MacroPad {
         let bytes_to_write = match port.bytes_to_write() {
             Ok(bytes) => bytes,
             Err(_) => {
+                log::debug!("= error checking bytes to write");
                 disconnected = true;
                 0
             }
@@ -92,6 +99,7 @@ impl MacroPad {
                 }
                 Err(e) => {
                     if e.kind() != io::ErrorKind::TimedOut {
+                        log::debug!("= error writing");
                         disconnected = true;
                     }
 
@@ -102,13 +110,29 @@ impl MacroPad {
 
         if disconnected {
             self.serial_port = None;
+            log::debug!("= disconnected");
         }
     }
 
     fn process_input(&mut self) {
         while let Some(new_line_index) = self.input_buffer.iter().position(|&c| c == '\n' as u8) {
             let message_buffer: Vec<u8> = self.input_buffer.drain(0..=new_line_index).collect();
-            let message = json::parse(str::from_utf8(&message_buffer).unwrap()).unwrap();
+
+            let message_string = match str::from_utf8(&message_buffer) {
+                Ok(message_string) => message_string,
+                Err(_) => {
+                    log::warn!("= invalid utf-8 message: {:?}", message_buffer);
+                    continue;
+                }
+            };
+
+            let message = match json::parse(message_string) {
+                Ok(message) => message,
+                Err(_) => {
+                    log::warn!("= invalid json message: {}", message_string);
+                    continue;
+                }
+            };
 
             self.process_message(&message);
         }
@@ -124,14 +148,20 @@ impl MacroPad {
             "startTimeEntry" => self.start_time_entry(message),
             "stopTimeEntry" => self.stop_time_entry(),
             "adjustTime" => self.adjust_time(message),
+            "sendWakeOnLan" => self.send_wake_on_lan(),
             _ => panic!("Unknown message kind: {}", kind),
         }
     }
 
     fn send_time_entries(&mut self) {
-        let response = self
+        let result = self
             .api_client
             .make_toggl_request("GET", "api/v8/time_entries", None);
+
+        let response = match result {
+            Err(_) => return self.send_error_message(),
+            Ok(response) => response,
+        };
 
         response.members().for_each(|member| {
             self.send_message(json::object! {
@@ -146,7 +176,7 @@ impl MacroPad {
     }
 
     fn start_time_entry(&mut self, message: &json::JsonValue) {
-        self.api_client.make_toggl_request(
+        let result = self.api_client.make_toggl_request(
             "POST",
             "api/v8/time_entries/start",
             Some(&json::object! {
@@ -159,60 +189,91 @@ impl MacroPad {
             }),
         );
 
-        self.send_success_message();
+        match result {
+            Err(_) => self.send_error_message(),
+            Ok(_) => self.send_success_message(),
+        }
     }
 
     fn stop_time_entry(&mut self) {
-        let current_time_entry = &self.get_current_time_entry()["data"];
+        let current_time_entry = match self.get_current_time_entry() {
+            Err(_) => return self.send_error_message(),
+            Ok(current_time_entry) => current_time_entry,
+        };
 
-        if !current_time_entry.is_null() {
-            self.api_client.make_toggl_request(
-                "PUT",
-                &format!(
-                    "api/v8/time_entries/{}/stop",
-                    current_time_entry["id"].as_i64().unwrap()
-                ),
-                Some(&json::object! {}),
-            );
+        if current_time_entry.is_null() {
+            return self.send_success_message();
         }
 
-        self.send_success_message();
+        let result = self.api_client.make_toggl_request(
+            "PUT",
+            &format!(
+                "api/v8/time_entries/{}/stop",
+                current_time_entry["id"].as_i64().unwrap()
+            ),
+            Some(&json::object! {}),
+        );
+
+        match result {
+            Err(_) => self.send_error_message(),
+            Ok(_) => self.send_success_message(),
+        }
     }
 
     fn adjust_time(&mut self, message: &json::JsonValue) {
-        let current_time_entry = &self.get_current_time_entry()["data"];
+        let current_time_entry = match self.get_current_time_entry() {
+            Err(_) => return self.send_error_message(),
+            Ok(current_time_entry) => current_time_entry,
+        };
 
-        if !current_time_entry.is_null() {
-            let current_start =
-                chrono::DateTime::parse_from_rfc3339(current_time_entry["start"].as_str().unwrap())
-                    .unwrap();
-            let updated_start =
-                current_start - chrono::Duration::minutes(message["minutes"].as_i64().unwrap());
-
-            self.api_client.make_toggl_request(
-                "PUT",
-                &format!(
-                    "api/v8/time_entries/{}",
-                    current_time_entry["id"].as_i64().unwrap()
-                ),
-                Some(&json::object! {
-                    time_entry: {
-                        start: updated_start.to_rfc3339()
-                    }
-                }),
-            );
+        if current_time_entry.is_null() {
+            return self.send_error_message();
         }
 
+        let current_start =
+            chrono::DateTime::parse_from_rfc3339(current_time_entry["start"].as_str().unwrap())
+                .unwrap();
+        let updated_start =
+            current_start - chrono::Duration::minutes(message["minutes"].as_i64().unwrap());
+
+        let result = self.api_client.make_toggl_request(
+            "PUT",
+            &format!(
+                "api/v8/time_entries/{}",
+                current_time_entry["id"].as_i64().unwrap()
+            ),
+            Some(&json::object! {
+                time_entry: {
+                    start: updated_start.to_rfc3339()
+                }
+            }),
+        );
+
+        match result {
+            Err(_) => self.send_error_message(),
+            Ok(_) => self.send_success_message(),
+        }
+    }
+
+    fn send_wake_on_lan(&mut self) {
+        self.api_client.send_wake_on_lan();
         self.send_success_message();
     }
 
-    fn get_current_time_entry(&self) -> json::JsonValue {
-        self.api_client
-            .make_toggl_request("GET", "api/v8/time_entries/current", None)
+    fn get_current_time_entry(&self) -> Result<json::JsonValue, TogglError> {
+        let response =
+            self.api_client
+                .make_toggl_request("GET", "api/v8/time_entries/current", None)?;
+
+        Ok(response["data"].to_owned())
     }
 
     fn send_success_message(&mut self) {
         self.send_message(json::object! { kind: "success" });
+    }
+
+    fn send_error_message(&mut self) {
+        self.send_message(json::object! { kind: "error" });
     }
 
     fn send_message(&mut self, message: json::JsonValue) {

@@ -439,6 +439,7 @@ dependencies = [
  "json",
  "lib",
  "log",
+ "macaddr",
  "packed_struct",
  "raylib",
  "rppal",
@@ -447,6 +448,7 @@ dependencies = [
  "ureq",
  "uuid",
  "vsprintf",
+ "wake-on-lan",
 ]
 
 [[package]]
@@ -920,6 +922,12 @@ checksum = "abb12e687cfb44aa40f41fc3978ef76448f9b6038cad6aef4259d3c095a2382e"
 dependencies = [
  "cfg-if 1.0.0",
 ]
+
+[[package]]
+name = "macaddr"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baee0bbc17ce759db233beb01648088061bf678383130602a298e6998eedb2d8"
 
 [[package]]
 name = "mach"
@@ -1657,6 +1665,12 @@ dependencies = [
  "cc",
  "libc",
 ]
+
+[[package]]
+name = "wake-on-lan"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ccf60b60ad7e5b1b37372c5134cbcab4db0706c231d212e0c643a077462bc8f"
 
 [[package]]
 name = "walkdir"

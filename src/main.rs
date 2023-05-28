@@ -1,15 +1,18 @@
 use btleplug::api::{Central as _, Manager as _, Peripheral as _};
+use core::str::FromStr;
 use futures::stream::StreamExt as _;
 use packed_struct::prelude::*;
 #[cfg(feature = "pi")]
 use rppal::i2c::I2c;
-use std::{env, io::Read, rc::Rc, thread, time};
 use std::sync::mpsc;
+use std::{env, io::Read, rc::Rc, thread, time};
 
 #[cfg(feature = "reloader")]
-use hot_lib::{draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation};
+use hot_lib::{
+    draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation, TogglError,
+};
 #[cfg(not(feature = "reloader"))]
-use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation};
+use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation, TogglError};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -85,6 +88,8 @@ mod hot_lib {
     pub use lib::State;
 
     pub use lib::ApiClient;
+
+    pub use lib::TogglError;
 
     pub use lib::I2cOperation;
 }
@@ -234,7 +239,7 @@ impl LibApiClient for ApiClient {
         method: &str,
         path: &str,
         body: Option<&json::JsonValue>,
-    ) -> json::JsonValue {
+    ) -> Result<json::JsonValue, TogglError> {
         let request = self
             .request_agent
             .request(
@@ -259,11 +264,14 @@ impl LibApiClient for ApiClient {
             }
         };
 
-        let response_string = result.unwrap().into_string().unwrap();
+        let response_string = result
+            .or(Err(TogglError))?
+            .into_string()
+            .or(Err(TogglError))?;
 
         log::debug!(target: "toggl", "<- {}", response_string);
 
-        json::parse(&response_string).unwrap()
+        json::parse(&response_string).or(Err(TogglError))
     }
 
     fn send_puck_image(&self, image: lib::puck::PuckImage) {
@@ -284,6 +292,15 @@ impl LibApiClient for ApiClient {
 
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>) {
         self.i2c_tx.as_ref().unwrap().send(operations).unwrap();
+    }
+
+    fn send_wake_on_lan(&self) {
+        let address = macaddr::MacAddr6::from_str(&env::var("WAKE_ON_LAN_MAC").unwrap())
+            .unwrap()
+            .into_array();
+
+        log::debug!(target: "wake_on_lan", "-> {:02x?}", address);
+        wake_on_lan::MagicPacket::new(&address).send().unwrap();
     }
 }
 
