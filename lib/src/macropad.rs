@@ -1,7 +1,10 @@
 use super::{ApiClient, Context, TogglError};
+use ::core::str::FromStr;
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
 use std::rc::Rc;
+use std::thread;
+use std::time;
 use std::{env, io, str};
 
 pub struct MacroPad {
@@ -26,7 +29,7 @@ impl MacroPad {
             return;
         }
 
-        let mut matching_port_infos: Vec<SerialPortInfo> = available_ports()
+        let matching_port_infos: Vec<SerialPortInfo> = available_ports()
             .unwrap()
             .into_iter()
             .filter(|port_info| match port_info.port_type {
@@ -37,17 +40,28 @@ impl MacroPad {
             })
             .collect();
 
-        matching_port_infos.sort_by(|a, b| a.port_name.cmp(&b.port_name));
+        for port_info in matching_port_infos {
+            let mut port = match serialport::new(port_info.port_name.to_string(), 19200).open() {
+                Ok(port) => port,
+                Err(_) => continue,
+            };
 
-        if let Some(last) = matching_port_infos.last() {
-            self.serial_port = Some(
-                serialport::new(last.port_name.to_string(), 19200)
-                    .open()
-                    .unwrap(),
-            );
+            let mut buffer = [0; 2];
+
+            let read_count = match port.read(&mut buffer) {
+                Ok(count) => count,
+                Err(_) => continue,
+            };
+
+            if &buffer[0..read_count] != b"h\n" {
+                continue;
+            }
+
+            self.serial_port = Some(port);
             self.input_buffer.clear();
             self.output_buffer.clear();
             log::debug!("= connected");
+            break;
         }
     }
 
@@ -126,6 +140,10 @@ impl MacroPad {
                 }
             };
 
+            if message_string == "h\n" {
+                continue;
+            }
+
             let message = match json::parse(message_string) {
                 Ok(message) => message,
                 Err(_) => {
@@ -145,10 +163,12 @@ impl MacroPad {
 
         match kind {
             "getTimeEntries" => self.send_time_entries(),
+            "continueTimeEntry" => self.continue_time_entry(),
             "startTimeEntry" => self.start_time_entry(message),
             "stopTimeEntry" => self.stop_time_entry(),
             "adjustTime" => self.adjust_time(message),
             "sendWakeOnLan" => self.send_wake_on_lan(),
+            "switchBoseDevices" => self.switch_bose_devices(message),
             _ => panic!("Unknown message kind: {}", kind),
         }
     }
@@ -173,6 +193,40 @@ impl MacroPad {
         });
 
         self.send_success_message();
+    }
+
+    fn continue_time_entry(&mut self) {
+        let result = self
+            .api_client
+            .make_toggl_request("GET", "api/v8/time_entries", None);
+
+        let response = match result {
+            Err(_) => return self.send_error_message(),
+            Ok(response) => response,
+        };
+
+        let member = match response.members().last() {
+            None => return self.send_error_message(),
+            Some(member) => member,
+        };
+
+        let result = self.api_client.make_toggl_request(
+            "POST",
+            "api/v8/time_entries/start",
+            Some(&json::object! {
+                time_entry: {
+                    created_with: "deskpi",
+                    pid: i64::from_str_radix(&env::var("TOGGL_PROJECT_ID").unwrap(), 10).unwrap(),
+                    wid: i64::from_str_radix(&env::var("TOGGL_WORKSPACE_ID").unwrap(), 10).unwrap(),
+                    description: member["description"].as_str().unwrap(),
+                }
+            }),
+        );
+
+        match result {
+            Err(_) => self.send_error_message(),
+            Ok(_) => self.send_success_message(),
+        }
     }
 
     fn start_time_entry(&mut self, message: &json::JsonValue) {
@@ -257,6 +311,20 @@ impl MacroPad {
 
     fn send_wake_on_lan(&mut self) {
         self.api_client.send_wake_on_lan();
+        self.send_success_message();
+    }
+
+    fn switch_bose_devices(&mut self, message: &json::JsonValue) {
+        self.api_client.switch_bose_devices(
+            message["devices"]
+                .members()
+                .map(|device| device.as_str().unwrap())
+                .map(|device| macaddr::MacAddr6::from_str(device).unwrap())
+                .collect::<Vec<macaddr::MacAddr6>>()
+                .try_into()
+                .unwrap(),
+        );
+
         self.send_success_message();
     }
 

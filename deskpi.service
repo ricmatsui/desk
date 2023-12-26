@@ -14,5 +14,6 @@ Environment=TOGGL_AUTH={{ toggl_auth }}
 Environment=TOGGL_PROJECT_ID={{ toggl_project_id }}
 Environment=TOGGL_WORKSPACE_ID={{ toggl_workspace_id }}
 Environment=WAKE_ON_LAN_MAC={{ wake_on_lan_mac }}
+Environment=BOSE_MAC={{ bose_mac }}
 Restart=always
 RestartSec=5s

@@ -14,10 +14,12 @@
 		"vars": {
 			"ansible_user": "ENC[AES256_GCM,data:7Rg=,iv:mE3bXRG38OZuMZBPlKRV8VLmZwAQaHYyrBI2acqPqJ4=,tag:kr/LPyhs6MGFEF47qHAqiA==,type:str]",
 			"ansible_become": "ENC[AES256_GCM,data:SexU,iv:bBLgJRe0fKzSnyk3qrzmG7aqr7lUCufcg2W+F1AeZQw=,tag:DNM8I4xIuYn4Og3aRCeYwQ==,type:str]",
+			"ansible_ssh_common_args": "ENC[AES256_GCM,data:tOgS2D/a9ZOpGSZRwu1tiCdiYGqBQ01UaBE=,iv:dKggHOCJek+rokCRuSxf4YEIhPaq0ar6nm4sgxxEt9A=,tag:Df6Ab6bCc7d5xBPzvUsCQA==,type:str]",
 			"toggl_auth": "ENC[AES256_GCM,data:D6c54g6rbrcTtJCCoDtiUQw5MZ/vYAwdJPJkoA9GvO+Q1wzU9K0sDcH2,iv:iuoUcCqUC8SPssFhTcJXNYYmzXXVn3Ej+NieOC6BQ0A=,tag:ovyofK7+O3I7yp2qDB7erw==,type:str]",
 			"toggl_project_id": "ENC[AES256_GCM,data:5cEigPH2K1GE,iv:I8NbP5rdt3+4zmNrsr14xBHKYWgKcYyOXExtWw/li7c=,tag:oVtJikl+2q+Jb50UI90pqw==,type:str]",
 			"toggl_workspace_id": "ENC[AES256_GCM,data:nuCF/Fkc,iv:bXb11vmCoFFNtpgo9JuMCxjRY5G2kxKb1u/g0+HbuoA=,tag:sOO7+rKoIKgAXuhwPP0G9Q==,type:str]",
-			"wake_on_lan_mac": "ENC[AES256_GCM,data:n/mzK2B7hYT1RUlJc13bREM=,iv:zHzXlQuVumSK9q1uIdmhPwWn6/MW6k/7PmskdZVWANU=,tag:YZShi0cmJlpxD+Xexgqfeg==,type:str]"
+			"wake_on_lan_mac": "ENC[AES256_GCM,data:n/mzK2B7hYT1RUlJc13bREM=,iv:zHzXlQuVumSK9q1uIdmhPwWn6/MW6k/7PmskdZVWANU=,tag:YZShi0cmJlpxD+Xexgqfeg==,type:str]",
+			"bose_mac": "ENC[AES256_GCM,data:OEE0JEeGXXue+VQULU91Zkk=,iv:yHH5hMNoV8ukGbBB8UcRy0ycr+1kSQjYndvEk7VO0kw=,tag:caxIOHfqTGmjVf3t5+WA5w==,type:str]"
 		}
 	},
 	"sops": {
@@ -25,8 +27,8 @@
 		"gcp_kms": null,
 		"azure_kv": null,
 		"hc_vault": null,
-		"lastmodified": "2023-04-22T06:24:34Z",
-		"mac": "ENC[AES256_GCM,data:ZZOWgtQeaV/gYxsCzsQyL01zK5Emi29HhqajHRI6U/KYN434IpLhNDEIvX9c1O9LtIlPXPrfCqHcik1xNVK2xYhYyP2JGdSZplfEfQnWoo7ZF/wm32rcFwvPeVIXYQngoeRsc29CvarpFiVj9DMbVc/Hr05x+mebZxM+5xWujd4=,iv:hG8TUqQ6GBUFoThDxfIYg6iDm+b9WAVGkVCYjIaY+Oc=,tag:FCqoapCCs9mM6gqwy3ntJQ==,type:str]",
+		"lastmodified": "2023-12-26T18:54:52Z",
+		"mac": "ENC[AES256_GCM,data:ATdUkTNfC1YACzbtm9jJ2MnaEi7ApHzlbJaF97aImUeO1DieO64m20Adhh6lZ7IaEMLaGOXKQJO2TpWQFtNjfD3MgqcgCFxieU8Bik44e8xHGCsekPKMo39zodlg31ktgza7KAa/bXaik4lmvjr9W9RlecJvSJNdFVKh5AL435E=,iv:c2t2txDXKksuVDVmAHm5eoyt7Mxvt2UZDd54NnP0XeA=,tag:nG/x0Xpw7/p1+pZRfLTPDQ==,type:str]",
 		"pgp": [
 			{
 				"created_at": "2020-10-23T21:16:31Z",

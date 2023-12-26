@@ -47,12 +47,14 @@ impl Earth {
             } else {
                 let mut image = Image::gen_image_color(800, 400, Color::WHITE);
 
-                image.draw(
-                    &api_client.make_noaa_archive_request(800, 400, date),
-                    Rectangle::new(0.0, 0.0, 800.0, 400.0),
-                    Rectangle::new(0.0, 0.0, 800.0, 400.0),
-                    Color::WHITE,
-                );
+                if let Ok(archive_image) = api_client.make_noaa_archive_request(800, 400, date) {
+                    image.draw(
+                        &archive_image,
+                        Rectangle::new(0.0, 0.0, 800.0, 400.0),
+                        Rectangle::new(0.0, 0.0, 800.0, 400.0),
+                        Color::WHITE,
+                    );
+                }
 
                 image.export_image(&image_path);
                 image
@@ -74,12 +76,7 @@ impl Earth {
         }
     }
 
-    pub fn update(
-        &mut self,
-        context: &Context,
-        rl: &mut RaylibHandle,
-        _thread: &RaylibThread,
-    ) {
+    pub fn update(&mut self, context: &Context, rl: &mut RaylibHandle, _thread: &RaylibThread) {
         if context.input.is_key_down(KeyboardKey::KEY_A) {
             self.ball_angular_velocity += 0.1;
         } else {
@@ -113,12 +110,7 @@ impl Earth {
         }
     }
 
-    pub fn draw(
-        &mut self,
-        context: &Context,
-        d: &mut RaylibDrawHandle,
-        thread: &RaylibThread,
-    ) {
+    pub fn draw(&mut self, context: &Context, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         if context.screen_enabled {
             {
                 let mut texture_mode = d.begin_texture_mode(thread, &mut self.render_texture);

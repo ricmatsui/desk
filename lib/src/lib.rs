@@ -22,7 +22,7 @@ pub trait ApiClient {
         width: u32,
         height: u32,
         date: chrono::DateTime<chrono::Utc>,
-    ) -> Image;
+    ) -> Result<Image, Box<dyn std::error::Error>>;
     fn make_toggl_request(
         &self,
         method: &str,
@@ -30,6 +30,7 @@ pub trait ApiClient {
         body: Option<&json::JsonValue>,
     ) -> Result<json::JsonValue, TogglError>;
     fn send_puck_image(&self, image: puck::PuckImage);
+    fn switch_bose_devices(&self, addresses: [macaddr::MacAddr6; 2]);
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>);
     fn send_wake_on_lan(&self);
 }

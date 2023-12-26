@@ -1,17 +1,5 @@
 ---
 
-- name: config
-  gather_facts: false
-  hosts:
-    - zero
-    - localhost
-  tags:
-    - always
-  tasks:
-    - name: load config
-      community.sops.load_vars:
-        file: config.yml
-
 - name: setup
   gather_facts: false
   hosts: zero

@@ -2,22 +2,24 @@ use btleplug::api::{Central as _, Manager as _, Peripheral as _};
 use core::str::FromStr;
 use futures::stream::StreamExt as _;
 use packed_struct::prelude::*;
-#[cfg(feature = "pi")]
-use rppal::i2c::I2c;
 use std::sync::mpsc;
 use std::{env, io::Read, rc::Rc, thread, time};
+
+#[cfg(feature = "pi")]
+use rppal::i2c::I2c;
 
 #[cfg(feature = "reloader")]
 use hot_lib::{
     draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation, TogglError,
 };
+
 #[cfg(not(feature = "reloader"))]
 use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation, TogglError};
 
 fn main() {
     simple_logger::SimpleLogger::new()
-        .with_module_level("rustls", log::LevelFilter::Warn)
-        .with_module_level("ureq", log::LevelFilter::Warn)
+        .with_module_level("rustls", log::LevelFilter::Debug)
+        .with_module_level("ureq", log::LevelFilter::Trace)
         .with_module_level("serde_xml_rs", log::LevelFilter::Warn)
         .with_module_level("btleplug", log::LevelFilter::Warn)
         .with_module_level("bluez_async", log::LevelFilter::Warn)
@@ -38,6 +40,7 @@ fn main() {
 
     #[cfg(feature = "pi")]
     let (width, height) = (240, 240);
+
     #[cfg(not(feature = "pi"))]
     let (width, height) = (700, 320);
 
@@ -96,6 +99,7 @@ mod hot_lib {
 
 #[cfg(feature = "pi")]
 type LogText = *const u8;
+
 #[cfg(not(feature = "pi"))]
 type LogText = *const i8;
 
@@ -133,28 +137,40 @@ struct PuckImageCommand {
 }
 
 #[derive(Debug)]
+struct BoseSwitchCommand {
+    addresses: [macaddr::MacAddr6; 2],
+    response_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
+}
+
+#[derive(Debug)]
 struct ApiClient {
     request_agent: ureq::Agent,
     i2c_tx: Option<mpsc::SyncSender<Vec<I2cOperation>>>,
     i2c_thread: std::thread::JoinHandle<()>,
     puck_image_tx: Option<tokio::sync::mpsc::Sender<PuckImageCommand>>,
-    bluetooth_thread: std::thread::JoinHandle<()>,
+    puck_bluetooth_thread: std::thread::JoinHandle<()>,
+    bose_switch_tx: Option<tokio::sync::mpsc::Sender<BoseSwitchCommand>>,
+    bose_bluetooth_thread: std::thread::JoinHandle<()>,
 }
 
 impl ApiClient {
     fn new() -> Self {
         let (i2c_thread, i2c_tx) = start_i2c();
-        let (bluetooth_thread, puck_image_tx) = start_bluetooth();
+        let (puck_bluetooth_thread, puck_image_tx) = start_puck_bluetooth();
+        let (bose_bluetooth_thread, bose_switch_tx) = start_bose_bluetooth();
 
         ApiClient {
             request_agent: ureq::AgentBuilder::new()
+                .max_idle_connections(0)
                 .timeout_read(time::Duration::from_secs(5))
                 .timeout_write(time::Duration::from_secs(5))
                 .build(),
             i2c_tx: Some(i2c_tx),
             i2c_thread,
             puck_image_tx: Some(puck_image_tx),
-            bluetooth_thread,
+            puck_bluetooth_thread,
+            bose_switch_tx: Some(bose_switch_tx),
+            bose_bluetooth_thread,
         }
     }
 
@@ -162,7 +178,9 @@ impl ApiClient {
         self.i2c_tx = None;
         self.i2c_thread.join().unwrap();
         self.puck_image_tx = None;
-        self.bluetooth_thread.join().unwrap();
+        self.puck_bluetooth_thread.join().unwrap();
+        self.bose_switch_tx = None;
+        self.bose_bluetooth_thread.join().unwrap();
     }
 }
 
@@ -199,7 +217,7 @@ impl LibApiClient for ApiClient {
         width: u32,
         height: u32,
         date: chrono::DateTime<chrono::Utc>,
-    ) -> raylib::core::texture::Image {
+    ) -> Result<raylib::core::texture::Image, Box<dyn std::error::Error>> {
         log::debug!(target: "noaa", "-> export image {}", date);
         let request = self
             .request_agent
@@ -217,21 +235,23 @@ impl LibApiClient for ApiClient {
             .query("f", "image")
             .set("Content-Type", "image/png");
 
-        let response = request.call().unwrap();
+        let response = request.call()?;
 
-        let length: usize = response.header("Content-Length").unwrap().parse().unwrap();
+        let length: usize = response
+            .header("Content-Length")
+            .ok_or("Missing content length header")?
+            .parse()?;
 
         let mut bytes: Vec<u8> = Vec::with_capacity(length);
 
-        response.into_reader().read_to_end(&mut bytes).unwrap();
+        response.into_reader().read_to_end(&mut bytes)?;
 
         assert_eq!(bytes.len(), length);
 
         let image =
-            raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32)
-                .unwrap();
+            raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32)?;
         log::debug!(target: "noaa", "<- image {} {:?}", length, image);
-        image
+        Ok(image)
     }
 
     fn make_toggl_request(
@@ -265,13 +285,22 @@ impl LibApiClient for ApiClient {
         };
 
         let response_string = result
-            .or(Err(TogglError))?
+            .or_else(|error| {
+                log::error!(target: "toggl", "!! call {:?}", error);
+                Err(TogglError)
+            })?
             .into_string()
-            .or(Err(TogglError))?;
+            .or_else(|error| {
+                log::error!(target: "toggl", "!! string {:?}", error);
+                Err(TogglError)
+            })?;
 
         log::debug!(target: "toggl", "<- {}", response_string);
 
-        json::parse(&response_string).or(Err(TogglError))
+        json::parse(&response_string).or_else(|error| {
+            log::error!(target: "toggl", "!! parse {:?}", error);
+            Err(TogglError)
+        })
     }
 
     fn send_puck_image(&self, image: lib::puck::PuckImage) {
@@ -288,6 +317,25 @@ impl LibApiClient for ApiClient {
         response_rx.blocking_recv().unwrap().unwrap();
 
         log::debug!(target: "puck", "<- done");
+    }
+
+    fn switch_bose_devices(&self, addresses: [macaddr::MacAddr6; 2]) {
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+
+        log::debug!(target: "bose", "-> switch");
+
+        self.bose_switch_tx
+            .as_ref()
+            .unwrap()
+            .blocking_send(BoseSwitchCommand {
+                addresses,
+                response_tx,
+            })
+            .unwrap();
+
+        response_rx.blocking_recv().unwrap().unwrap();
+
+        log::debug!(target: "bose", "<- done");
     }
 
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>) {
@@ -339,18 +387,219 @@ fn start_i2c() -> (
     (thread, i2c_tx)
 }
 
-fn start_bluetooth() -> (
+fn start_bose_bluetooth() -> (
+    std::thread::JoinHandle<()>,
+    tokio::sync::mpsc::Sender<BoseSwitchCommand>,
+) {
+    let (bose_switch_tx, bose_switch_rx) = tokio::sync::mpsc::channel::<BoseSwitchCommand>(1);
+
+    let thread = thread::spawn(|| bose_bluetooth_main(bose_switch_rx));
+
+    (thread, bose_switch_tx)
+}
+
+fn bose_bluetooth_main(mut bose_switch_rx: tokio::sync::mpsc::Receiver<BoseSwitchCommand>) {
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    tokio_runtime.block_on(async {
+        while let Some(command) = bose_switch_rx.recv().await {
+            let bose = connect_to_bose().await;
+            switch_devices(&bose, &command.addresses).await;
+            bose.disconnect().await.unwrap();
+
+            command.response_tx.send(Ok(())).unwrap();
+        }
+    });
+}
+
+async fn connect_to_bose() -> btleplug::platform::Peripheral {
+    let manager = btleplug::platform::Manager::new().await.unwrap();
+    let adapters = manager.adapters().await.unwrap();
+    let central = adapters.into_iter().nth(0).unwrap();
+    let mut events = central.events().await.unwrap();
+
+    log::debug!(target: "bose", "-> start scan");
+    central
+        .start_scan(btleplug::api::ScanFilter {
+            services: vec![uuid::Uuid::parse_str("0000fdd2-0000-1000-8000-00805f9b34fb").unwrap()],
+        })
+        .await
+        .unwrap();
+
+    let mut bose: Option<btleplug::platform::Peripheral> = None;
+    while let Some(event) = events.next().await {
+        match event {
+            btleplug::api::CentralEvent::DeviceDiscovered(id) => {
+                let p = central.peripheral(&id).await.unwrap();
+                if p.address().to_string() == env::var("BOSE_MAC").unwrap() {
+                    bose = Some(p);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    drop(events);
+    log::debug!(target: "bose", "= device found");
+
+    let p = bose.unwrap();
+    central.stop_scan().await.unwrap();
+    log::debug!(target: "bose", "<- scan stopped");
+    log::debug!(target: "bose", "-> connect");
+    p.connect().await.unwrap();
+    p.discover_services().await.unwrap();
+    log::debug!(target: "bose", "<- connected");
+    return p;
+}
+
+async fn switch_devices(bose: &btleplug::platform::Peripheral, addresses: &[macaddr::MacAddr6; 2]) {
+    let command_characteristic_uuid: uuid::Uuid =
+        uuid::Uuid::parse_str("d417c028-9818-4354-99d1-2ac09d074591").unwrap();
+
+    let response_characteristic_uuid: uuid::Uuid =
+        uuid::Uuid::parse_str("c65b8f2f-aee2-4c89-b758-bc4892d6f2d8").unwrap();
+
+    let characteristics = bose.characteristics();
+
+    let command_characteristic = characteristics
+        .iter()
+        .find(|c| c.uuid == command_characteristic_uuid)
+        .unwrap();
+
+    let response_characteristic = characteristics
+        .iter()
+        .find(|c| c.uuid == response_characteristic_uuid)
+        .unwrap();
+
+    log::debug!(target: "bose", "-> start switch");
+
+    bose.subscribe(response_characteristic).await.unwrap();
+    let mut notifications = bose.notifications().await.unwrap();
+
+    log::debug!(target: "bose", "-> request devices");
+    bose.write(
+        &command_characteristic,
+        &[0x00, 0x04, 0x04, 0x01, 0x00],
+        btleplug::api::WriteType::WithResponse,
+    )
+    .await
+    .unwrap();
+    log::debug!(target: "bose", "<- write request");
+
+    let mut value: Option<Vec<u8>> = None;
+
+    log::debug!(target: "bose", "= wait notification");
+    while let Some(notification) = notifications.next().await {
+        log::debug!(target: "bose", "<- notification {:02x?}", notification);
+
+        if notification.uuid == response_characteristic_uuid {
+            value = Some(notification.value);
+            break;
+        }
+    }
+
+    log::debug!(target: "bose", "<- received devices");
+
+    let response = value.unwrap();
+    log::debug!(target: "bose", "<- response {:02x?}", response);
+    let mut data = response.iter().skip(4);
+    let data_length = data.next().unwrap();
+    data.next().unwrap();
+
+    let paired_count = (data_length - 1) / 6;
+    let mut paired_addresses: Vec<macaddr::MacAddr6> = vec![];
+
+    log::debug!(target: "bose", "<- paired count {:?}", paired_count);
+
+    for _ in 0..paired_count {
+        paired_addresses.push(macaddr::MacAddr6::from([
+            *data.next().unwrap(),
+            *data.next().unwrap(),
+            *data.next().unwrap(),
+            *data.next().unwrap(),
+            *data.next().unwrap(),
+            *data.next().unwrap(),
+        ]));
+    }
+
+    log::debug!(target: "bose", "<- paired addresses {:02x?}", paired_addresses);
+
+    let mut connected_addresses: Vec<macaddr::MacAddr6> = vec![];
+
+    for address in paired_addresses {
+        bose.write(
+            &command_characteristic,
+            &[&[0x00, 0x04, 0x05, 0x01, 0x06], address.as_bytes()].concat(),
+            btleplug::api::WriteType::WithoutResponse,
+        )
+        .await
+        .unwrap();
+
+        let mut value: Option<Vec<u8>> = None;
+
+        while let Some(notification) = notifications.next().await {
+            log::debug!(target: "bose", "<- notification {:02x?}", notification);
+
+            if notification.uuid == response_characteristic_uuid {
+                value = Some(notification.value);
+                break;
+            }
+        }
+
+        let response = value.unwrap();
+        log::debug!(target: "bose", "<- response {:02x?}", response);
+        let mut data = response.iter().skip(11);
+
+        if *data.next().unwrap() == 0x01 {
+            connected_addresses.push(address);
+        }
+    }
+
+    drop(notifications);
+    bose.unsubscribe(response_characteristic).await.unwrap();
+
+    for address in connected_addresses {
+        log::debug!(target: "bose", "-> disconnect {:02x?}", address);
+        bose.write(
+            &command_characteristic,
+            &[&[0x00, 0x04, 0x02, 0x05, 0x06], address.as_bytes()].concat(),
+            btleplug::api::WriteType::WithoutResponse,
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    }
+
+    for address in addresses {
+        log::debug!(target: "bose", "-> connect {:02x?}", address);
+        bose.write(
+            &command_characteristic,
+            &[&[0x00, 0x04, 0x01, 0x05, 0x07, 0x00], address.as_bytes()].concat(),
+            btleplug::api::WriteType::WithoutResponse,
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    }
+
+    log::debug!(target: "bose", "<- done");
+}
+
+fn start_puck_bluetooth() -> (
     std::thread::JoinHandle<()>,
     tokio::sync::mpsc::Sender<PuckImageCommand>,
 ) {
     let (puck_image_tx, puck_image_rx) = tokio::sync::mpsc::channel::<PuckImageCommand>(1);
 
-    let thread = thread::spawn(|| bluetooth_main(puck_image_rx));
+    let thread = thread::spawn(|| puck_bluetooth_main(puck_image_rx));
 
     (thread, puck_image_tx)
 }
 
-fn bluetooth_main(mut puck_image_rx: tokio::sync::mpsc::Receiver<PuckImageCommand>) {
+fn puck_bluetooth_main(mut puck_image_rx: tokio::sync::mpsc::Receiver<PuckImageCommand>) {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -373,7 +622,7 @@ async fn connect_to_puck() -> btleplug::platform::Peripheral {
     let central = adapters.into_iter().nth(0).unwrap();
     let mut events = central.events().await.unwrap();
 
-    log::debug!(target: "bluetooth", "-> start scan");
+    log::debug!(target: "puck", "-> start scan");
     central
         .start_scan(btleplug::api::ScanFilter {
             services: vec![uuid::Uuid::parse_str("6e400001-b5a3-f393-e0a9-e50e24dcca9e").unwrap()],
@@ -396,15 +645,17 @@ async fn connect_to_puck() -> btleplug::platform::Peripheral {
             _ => {}
         }
     }
-    log::debug!(target: "bluetooth", "= device found");
+    log::debug!(target: "puck", "= device found");
+
+    drop(events);
 
     let p = puck.unwrap();
     central.stop_scan().await.unwrap();
-    log::debug!(target: "bluetooth", "<- scan stopped");
-    log::debug!(target: "bluetooth", "-> connect");
+    log::debug!(target: "puck", "<- scan stopped");
+    log::debug!(target: "puck", "-> connect");
     p.connect().await.unwrap();
     p.discover_services().await.unwrap();
-    log::debug!(target: "bluetooth", "<- connected");
+    log::debug!(target: "puck", "<- connected");
     return p;
 }
 
@@ -439,7 +690,7 @@ async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::Pu
         .find(|c| c.uuid == refresh_characteristic_uuid)
         .unwrap();
 
-    log::debug!(target: "bluetooth", "-> start image");
+    log::debug!(target: "puck", "-> start image");
     puck.write(
         &start_characteristic,
         &[],
@@ -447,9 +698,9 @@ async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::Pu
     )
     .await
     .unwrap();
-    log::debug!(target: "bluetooth", "<- done");
+    log::debug!(target: "puck", "<- done");
 
-    log::debug!(target: "bluetooth", "-> data");
+    log::debug!(target: "puck", "-> data");
     for (index, chunk_data) in image.data.as_slice().chunks(17).enumerate() {
         let mut buffer = [0; 17];
 
@@ -471,9 +722,9 @@ async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::Pu
         .await
         .unwrap();
     }
-    log::debug!(target: "bluetooth", "<- done");
+    log::debug!(target: "puck", "<- done");
 
-    log::debug!(target: "bluetooth", "-> start refresh");
+    log::debug!(target: "puck", "-> start refresh");
     puck.write(
         &refresh_characteristic,
         &[],
@@ -481,7 +732,7 @@ async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::Pu
     )
     .await
     .unwrap();
-    log::debug!(target: "bluetooth", "<- done");
+    log::debug!(target: "puck", "<- done");
 }
 
 #[cfg(feature = "reloader")]

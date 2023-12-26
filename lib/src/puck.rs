@@ -1,4 +1,5 @@
 use super::Context;
+use chrono::Datelike;
 use raylib::prelude::*;
 use std::path::Path;
 use std::rc::Rc;
@@ -218,7 +219,13 @@ impl Puck {
             10,
             Color::color_from_hsv(0.0, 0.0, 0.63),
         );
-        image.draw_rectangle(0, IMAGE_HEIGHT as i32 - 10, 50, 10, Color::BLACK);
+        image.draw_rectangle(
+            0,
+            IMAGE_HEIGHT as i32 - 10,
+            (current_date.ordinal() * IMAGE_WIDTH / 365) as i32,
+            10,
+            Color::BLACK,
+        );
 
         let date_string = format!("{}", current_date.format("%m-%d"));
 
@@ -237,11 +244,7 @@ impl Puck {
     }
 
     #[cfg(feature = "reloader")]
-    pub fn handle_reload(
-        &mut self,
-        rl: &mut raylib::RaylibHandle,
-        thread: &raylib::RaylibThread,
-    ) {
+    pub fn handle_reload(&mut self, rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) {
         self.game_of_life_shader = load_game_of_life_shader(rl, thread);
     }
 }

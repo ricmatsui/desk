@@ -845,6 +845,7 @@ dependencies = [
  "chrono",
  "json",
  "log",
+ "macaddr",
  "raylib",
  "rppal",
  "serialport",

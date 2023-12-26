@@ -14,6 +14,7 @@ serialport = "4.2.0"
 json = "0.12.4"
 chrono = "0.4.23"
 log = "0.4.17"
+macaddr = "1.0.1"
 
 [features]
 default = []
