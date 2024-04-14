@@ -5,8 +5,11 @@ use rppal::gpio::{Gpio, InputPin};
 use rppal::i2c::I2c;
 
 pub struct Input {
-    current: KeyState,
-    previous: KeyState,
+    last_activity_time: f64,
+    is_active: bool,
+    buffer: InputBuffer,
+    current: InputState,
+    previous: InputState,
 
     #[cfg(feature = "pi")]
     i2c: I2c,
@@ -25,8 +28,8 @@ pub struct PirateButtons {
     pin_y: InputPin,
 }
 
-#[derive(Copy, Clone)]
-pub struct KeyState {
+#[derive(Copy, Clone, PartialEq)]
+pub struct InputState {
     key_one: bool,
     key_two: bool,
     key_three: bool,
@@ -36,11 +39,20 @@ pub struct KeyState {
     key_b: bool,
     key_x: bool,
     key_y: bool,
+    axis_x: f32,
+    axis_y: f32,
+    axis_z: f32,
+}
+
+pub struct InputBuffer {
+    axis_x: f32,
+    axis_y: f32,
+    axis_z: f32,
 }
 
 impl Input {
     pub fn new() -> Self {
-        let initial_state = KeyState {
+        let initial_state = InputState {
             key_one: false,
             key_two: false,
             key_three: false,
@@ -50,6 +62,15 @@ impl Input {
             key_b: false,
             key_x: false,
             key_y: false,
+            axis_x: 0.0,
+            axis_y: 0.0,
+            axis_z: 0.0,
+        };
+
+        let initial_buffer = InputBuffer {
+            axis_x: 0.0,
+            axis_y: 0.0,
+            axis_z: 1.0,
         };
 
         #[cfg(feature = "pi")]
@@ -63,6 +84,9 @@ impl Input {
             i2c.smbus_write_byte(0x01, 0x00).unwrap();
 
             return Self {
+                last_activity_time: 0.0,
+                is_active: false,
+                buffer: initial_buffer,
                 current: initial_state,
                 previous: initial_state,
 
@@ -78,6 +102,9 @@ impl Input {
 
         #[cfg(not(feature = "pi"))]
         Self {
+            last_activity_time: 0.0,
+            is_active: false,
+            buffer: initial_buffer,
             current: initial_state,
             previous: initial_state,
         }
@@ -85,6 +112,10 @@ impl Input {
 
     pub fn update(&mut self, rl: &RaylibHandle) {
         self.previous = self.current;
+
+        self.current.axis_x = self.buffer.axis_x;
+        self.current.axis_y = self.buffer.axis_y;
+        self.current.axis_z = self.buffer.axis_z;
 
         #[cfg(feature = "pi")]
         {
@@ -114,6 +145,45 @@ impl Input {
             self.current.key_x = rl.is_key_down(KeyboardKey::KEY_X);
             self.current.key_y = rl.is_key_down(KeyboardKey::KEY_Y);
         }
+
+        if self.current == self.previous {
+            self.is_active = false;
+        } else {
+            self.last_activity_time = rl.get_time();
+            self.is_active = true;
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.is_active
+    }
+
+    pub fn last_activity_time(&self) -> f64 {
+        self.last_activity_time
+    }
+
+    pub fn set_x_axis(&mut self, x: f32) {
+        self.buffer.axis_x = x;
+    }
+
+    pub fn set_y_axis(&mut self, y: f32) {
+        self.buffer.axis_y = y;
+    }
+
+    pub fn set_z_axis(&mut self, z: f32) {
+        self.buffer.axis_z = z;
+    }
+
+    pub fn get_x_axis(&self) -> f32 {
+        self.current.axis_x
+    }
+
+    pub fn get_y_axis(&self) -> f32 {
+        self.current.axis_y
+    }
+
+    pub fn get_z_axis(&self) -> f32 {
+        self.current.axis_z
     }
 
     pub fn is_key_pressed(&self, key: KeyboardKey) -> bool {

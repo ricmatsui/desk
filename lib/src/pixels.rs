@@ -12,12 +12,12 @@ pub struct Pixels {
     brightness: f32,
     fade_speed: f32,
     fade_frequency: f32,
-    api_client: std::rc::Rc<dyn super::ApiClient>,
+    api_client: std::sync::Arc<dyn super::ApiClient>,
     shim_enabled: bool,
 }
 
 impl Pixels {
-    pub fn new(api_client: std::rc::Rc<dyn super::ApiClient>) -> Self {
+    pub fn new(api_client: std::sync::Arc<dyn super::ApiClient>) -> Self {
         api_client.enqueue_i2c(vec![
             I2cOperation::SetAddress(LED_SHIM_ADDRESS),
             I2cOperation::WriteByte(0xfd, 0x0b),
@@ -153,7 +153,7 @@ impl Pixels {
     }
 }
 
-fn turn_on_shim(api_client: &std::rc::Rc<dyn super::ApiClient>) {
+fn turn_on_shim(api_client: &std::sync::Arc<dyn super::ApiClient>) {
     api_client.enqueue_i2c(vec![
         I2cOperation::SetAddress(LED_SHIM_ADDRESS),
         I2cOperation::WriteByte(0xfd, 0x0b),
@@ -162,7 +162,7 @@ fn turn_on_shim(api_client: &std::rc::Rc<dyn super::ApiClient>) {
     ])
 }
 
-fn turn_off_shim(api_client: &std::rc::Rc<dyn super::ApiClient>) {
+fn turn_off_shim(api_client: &std::sync::Arc<dyn super::ApiClient>) {
     api_client.enqueue_i2c(vec![I2cOperation::SetAddress(LED_SHIM_ADDRESS)]);
 
     for i in 0x24..0xB4 {

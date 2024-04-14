@@ -1,20 +1,19 @@
 use btleplug::api::{Central as _, Manager as _, Peripheral as _};
 use core::str::FromStr;
 use futures::stream::StreamExt as _;
-use packed_struct::prelude::*;
-use std::sync::mpsc;
-use std::{env, io::Read, rc::Rc, thread, time};
+use std::sync::{mpsc, Arc};
+use std::{env, io::Read, thread, time};
 
 #[cfg(feature = "pi")]
 use rppal::i2c::I2c;
 
 #[cfg(feature = "reloader")]
 use hot_lib::{
-    draw, handle_reload, init, update, ApiClient as LibApiClient, I2cOperation, TogglError,
+    draw, handle_reload, init, update, shutdown, ApiClient as LibApiClient, I2cOperation, TogglError,
 };
 
 #[cfg(not(feature = "reloader"))]
-use lib::{draw, init, update, ApiClient as LibApiClient, I2cOperation, TogglError};
+use lib::{draw, init, update, shutdown, ApiClient as LibApiClient, I2cOperation, TogglError};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -42,7 +41,7 @@ fn main() {
     let (width, height) = (240, 240);
 
     #[cfg(not(feature = "pi"))]
-    let (width, height) = (700, 320);
+    let (width, height) = (1000, 500);
 
     let (mut rl, thread) = raylib::init().title("Desk Pi").size(width, height).build();
 
@@ -51,11 +50,12 @@ fn main() {
     #[cfg(feature = "pi")]
     rl.hide_cursor();
 
-    let api_client = Rc::new(ApiClient::new());
+    let api_client = Arc::new(ApiClient::new());
     let mut state = init(&mut rl, &thread, api_client.clone());
 
     while !rl.window_should_close() && rl.get_time() < 82700 as f64 {
         state.macropad.open_serial();
+        state.thinkink.open_serial();
 
         update(&mut state, &mut rl, &thread);
 
@@ -74,9 +74,9 @@ fn main() {
     #[cfg(feature = "reloader")]
     reload_watcher.stop();
 
-    drop(state);
+    shutdown(state);
 
-    let client = Rc::try_unwrap(api_client).unwrap();
+    let client = Arc::try_unwrap(api_client).unwrap();
     client.shutdown();
 }
 
@@ -131,12 +131,6 @@ pub extern "C" fn log_custom(msg_type: i32, text: LogText, args: *mut raylib::ff
 }
 
 #[derive(Debug)]
-struct PuckImageCommand {
-    image: lib::puck::PuckImage,
-    response_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
-}
-
-#[derive(Debug)]
 struct BoseSwitchCommand {
     addresses: [macaddr::MacAddr6; 2],
     response_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
@@ -147,8 +141,6 @@ struct ApiClient {
     request_agent: ureq::Agent,
     i2c_tx: Option<mpsc::SyncSender<Vec<I2cOperation>>>,
     i2c_thread: std::thread::JoinHandle<()>,
-    puck_image_tx: Option<tokio::sync::mpsc::Sender<PuckImageCommand>>,
-    puck_bluetooth_thread: std::thread::JoinHandle<()>,
     bose_switch_tx: Option<tokio::sync::mpsc::Sender<BoseSwitchCommand>>,
     bose_bluetooth_thread: std::thread::JoinHandle<()>,
 }
@@ -156,19 +148,16 @@ struct ApiClient {
 impl ApiClient {
     fn new() -> Self {
         let (i2c_thread, i2c_tx) = start_i2c();
-        let (puck_bluetooth_thread, puck_image_tx) = start_puck_bluetooth();
         let (bose_bluetooth_thread, bose_switch_tx) = start_bose_bluetooth();
 
         ApiClient {
             request_agent: ureq::AgentBuilder::new()
                 .max_idle_connections(0)
-                .timeout_read(time::Duration::from_secs(5))
-                .timeout_write(time::Duration::from_secs(5))
+                .timeout_read(time::Duration::from_secs(10))
+                .timeout_write(time::Duration::from_secs(10))
                 .build(),
             i2c_tx: Some(i2c_tx),
             i2c_thread,
-            puck_image_tx: Some(puck_image_tx),
-            puck_bluetooth_thread,
             bose_switch_tx: Some(bose_switch_tx),
             bose_bluetooth_thread,
         }
@@ -177,14 +166,65 @@ impl ApiClient {
     fn shutdown(mut self) {
         self.i2c_tx = None;
         self.i2c_thread.join().unwrap();
-        self.puck_image_tx = None;
-        self.puck_bluetooth_thread.join().unwrap();
         self.bose_switch_tx = None;
         self.bose_bluetooth_thread.join().unwrap();
     }
 }
 
 impl LibApiClient for ApiClient {
+    fn make_rammb_request(
+        &self,
+        name: &str,
+        date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<raylib::core::texture::Image, Box<dyn std::error::Error>> {
+        log::debug!(target: "rammb", "-> request {} {}", name, date);
+        let times_url = format!("https://rammb-slider.cira.colostate.edu/data/json/{}/full_disk/geocolor/latest_times.json", name);
+        let result = self.request_agent.request("GET", &times_url).call();
+
+        let target_timestamp_int = format!("{}", date.format("%Y%m%d%H%M%S"))
+            .parse::<i64>()
+            .unwrap();
+
+        let times = json::parse(&result.unwrap().into_string().unwrap()).unwrap();
+
+        let timestamp = times["timestamps_int"]
+            .members()
+            .min_by_key(|&t| (t.as_i64().unwrap() - target_timestamp_int).abs())
+            .unwrap()
+            .to_string();
+
+        //let timestamp = times["timestamps_int"][0].as_i64().unwrap().to_string();
+
+        //let time = chrono::DateTime::parse_from_str(&format!("{timestamp} +0000"), "%Y%m%d%H%M%S %z").unwrap();
+
+        log::debug!(target: "rammb", "-> timestamp {}", timestamp);
+        let url = format!("https://rammb-slider.cira.colostate.edu/data/imagery/{}/{}/{}/{}---full_disk/geocolor/{}/00/000_000.png", &timestamp[0..4], &timestamp[4..6], &timestamp[6..8], &name, &timestamp);
+
+        let request = self
+            .request_agent
+            .request("GET", &url)
+            .set("Content-Type", "image/png");
+
+        let response = request.call().unwrap();
+
+        let length: usize = response.header("Content-Length").unwrap().parse().unwrap();
+        println!("length: {}", length);
+
+        let mut bytes: Vec<u8> = Vec::with_capacity(length);
+
+        response
+            .into_reader()
+            .take(10_000_000)
+            .read_to_end(&mut bytes)
+            .unwrap();
+
+        assert_eq!(bytes.len(), length);
+
+        let image =
+            raylib::core::texture::Image::load_image_from_mem(".png", &bytes, length as i32)?;
+        Ok(image)
+    }
+
     fn make_noaa_tile_request(&self, level: u8, x: u8, y: u8) -> raylib::core::texture::Image {
         let request = self
             .request_agent
@@ -301,22 +341,6 @@ impl LibApiClient for ApiClient {
             log::error!(target: "toggl", "!! parse {:?}", error);
             Err(TogglError)
         })
-    }
-
-    fn send_puck_image(&self, image: lib::puck::PuckImage) {
-        let (response_tx, response_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-
-        log::debug!(target: "puck", "-> image");
-
-        self.puck_image_tx
-            .as_ref()
-            .unwrap()
-            .blocking_send(PuckImageCommand { image, response_tx })
-            .unwrap();
-
-        response_rx.blocking_recv().unwrap().unwrap();
-
-        log::debug!(target: "puck", "<- done");
     }
 
     fn switch_bose_devices(&self, addresses: [macaddr::MacAddr6; 2]) {
@@ -586,153 +610,6 @@ async fn switch_devices(bose: &btleplug::platform::Peripheral, addresses: &[maca
     }
 
     log::debug!(target: "bose", "<- done");
-}
-
-fn start_puck_bluetooth() -> (
-    std::thread::JoinHandle<()>,
-    tokio::sync::mpsc::Sender<PuckImageCommand>,
-) {
-    let (puck_image_tx, puck_image_rx) = tokio::sync::mpsc::channel::<PuckImageCommand>(1);
-
-    let thread = thread::spawn(|| puck_bluetooth_main(puck_image_rx));
-
-    (thread, puck_image_tx)
-}
-
-fn puck_bluetooth_main(mut puck_image_rx: tokio::sync::mpsc::Receiver<PuckImageCommand>) {
-    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    tokio_runtime.block_on(async {
-        while let Some(command) = puck_image_rx.recv().await {
-            let puck = connect_to_puck().await;
-            send_image(&puck, &command.image).await;
-            puck.disconnect().await.unwrap();
-
-            command.response_tx.send(Ok(())).unwrap();
-        }
-    });
-}
-
-async fn connect_to_puck() -> btleplug::platform::Peripheral {
-    let manager = btleplug::platform::Manager::new().await.unwrap();
-    let adapters = manager.adapters().await.unwrap();
-    let central = adapters.into_iter().nth(0).unwrap();
-    let mut events = central.events().await.unwrap();
-
-    log::debug!(target: "puck", "-> start scan");
-    central
-        .start_scan(btleplug::api::ScanFilter {
-            services: vec![uuid::Uuid::parse_str("6e400001-b5a3-f393-e0a9-e50e24dcca9e").unwrap()],
-        })
-        .await
-        .unwrap();
-
-    let mut puck: Option<btleplug::platform::Peripheral> = None;
-    while let Some(event) = events.next().await {
-        match event {
-            btleplug::api::CentralEvent::DeviceDiscovered(id) => {
-                let p = central.peripheral(&id).await.unwrap();
-                if let Some(name) = p.properties().await.unwrap().unwrap().local_name {
-                    if name == "Puck.js e1f5" {
-                        puck = Some(p);
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    log::debug!(target: "puck", "= device found");
-
-    drop(events);
-
-    let p = puck.unwrap();
-    central.stop_scan().await.unwrap();
-    log::debug!(target: "puck", "<- scan stopped");
-    log::debug!(target: "puck", "-> connect");
-    p.connect().await.unwrap();
-    p.discover_services().await.unwrap();
-    log::debug!(target: "puck", "<- connected");
-    return p;
-}
-
-#[derive(PackedStruct, Debug)]
-#[packed_struct(endian = "lsb")]
-pub struct ImageChunk {
-    offset: u16,
-    length: u8,
-    buffer: [u8; 17],
-}
-
-async fn send_image(puck: &btleplug::platform::Peripheral, image: &lib::puck::PuckImage) {
-    let start_characteristic_uuid: uuid::Uuid =
-        uuid::Uuid::parse_str("0000abcc-0000-1000-8000-00805f9b34fb").unwrap();
-    let data_characteristic_uuid: uuid::Uuid =
-        uuid::Uuid::parse_str("0000abcd-0000-1000-8000-00805f9b34fb").unwrap();
-    let refresh_characteristic_uuid: uuid::Uuid =
-        uuid::Uuid::parse_str("0000abce-0000-1000-8000-00805f9b34fb").unwrap();
-
-    let characteristics = puck.characteristics();
-
-    let start_characteristic = characteristics
-        .iter()
-        .find(|c| c.uuid == start_characteristic_uuid)
-        .unwrap();
-    let data_characteristic = characteristics
-        .iter()
-        .find(|c| c.uuid == data_characteristic_uuid)
-        .unwrap();
-    let refresh_characteristic = characteristics
-        .iter()
-        .find(|c| c.uuid == refresh_characteristic_uuid)
-        .unwrap();
-
-    log::debug!(target: "puck", "-> start image");
-    puck.write(
-        &start_characteristic,
-        &[],
-        btleplug::api::WriteType::WithResponse,
-    )
-    .await
-    .unwrap();
-    log::debug!(target: "puck", "<- done");
-
-    log::debug!(target: "puck", "-> data");
-    for (index, chunk_data) in image.data.as_slice().chunks(17).enumerate() {
-        let mut buffer = [0; 17];
-
-        buffer[0..chunk_data.len()].copy_from_slice(chunk_data);
-
-        let chunk = ImageChunk {
-            offset: index as u16 * 17,
-            length: chunk_data.len() as u8,
-            buffer,
-        };
-
-        let packed_data = chunk.pack().unwrap();
-
-        puck.write(
-            &data_characteristic,
-            packed_data.as_slice(),
-            btleplug::api::WriteType::WithResponse,
-        )
-        .await
-        .unwrap();
-    }
-    log::debug!(target: "puck", "<- done");
-
-    log::debug!(target: "puck", "-> start refresh");
-    puck.write(
-        &refresh_characteristic,
-        &[],
-        btleplug::api::WriteType::WithResponse,
-    )
-    .await
-    .unwrap();
-    log::debug!(target: "puck", "<- done");
 }
 
 #[cfg(feature = "reloader")]

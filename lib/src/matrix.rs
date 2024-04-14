@@ -10,7 +10,7 @@ pub struct Matrix {
     scroll_position: f32,
     updated: bool,
     enabled: bool,
-    api_client: std::rc::Rc<dyn super::ApiClient>,
+    api_client: std::sync::Arc<dyn super::ApiClient>,
     driver_enabled: bool,
 }
 
@@ -18,7 +18,7 @@ impl Matrix {
     pub fn new(
         _rl: &mut raylib::RaylibHandle,
         _thread: &raylib::RaylibThread,
-        api_client: std::rc::Rc<dyn super::ApiClient>,
+        api_client: std::sync::Arc<dyn super::ApiClient>,
     ) -> Self {
         let mut scaling = [0x20; 181];
         scaling[0] = 0x00;

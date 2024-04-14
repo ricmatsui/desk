@@ -6,8 +6,9 @@ commands:
     -i shaders
     -i game_of_life.png
     -i game_of_life_initial.png
+    -i testprojection.png
     -i date.txt
-    -i earth
+    -i geos-earth
     -x 'make shaders_build'
     -x 'run --features reloader'"
   lib: >

@@ -3,24 +3,29 @@ use ::core::str::FromStr;
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::cell::RefCell;
 use std::thread;
 use std::time;
 use std::{env, io, str};
+use super::input::Input;
 
 pub struct MacroPad {
     serial_port: Option<Box<dyn SerialPort>>,
     input_buffer: Vec<u8>,
     output_buffer: Vec<u8>,
-    api_client: Rc<dyn ApiClient>,
+    api_client: Arc<dyn ApiClient>,
+    input: Rc<RefCell<Input>>,
 }
 
 impl MacroPad {
-    pub fn new(api_client: Rc<dyn ApiClient>) -> Self {
+    pub fn new(api_client: Arc<dyn ApiClient>, input: Rc<RefCell<Input>>) -> Self {
         Self {
             serial_port: None,
             input_buffer: Vec::new(),
             output_buffer: Vec::new(),
             api_client,
+            input,
         }
     }
 
@@ -69,7 +74,7 @@ impl MacroPad {
         self.update_buffers();
         self.process_input();
 
-        if context.input.is_key_pressed(KeyboardKey::KEY_ONE) {
+        if context.input.borrow().is_key_pressed(KeyboardKey::KEY_ONE) {
             self.api_client.send_wake_on_lan();
         }
     }
@@ -141,6 +146,25 @@ impl MacroPad {
             };
 
             if message_string == "h\n" {
+                continue;
+            }
+
+            // Process message starting with p and parse the rest of the string as an integer
+            if message_string.starts_with("p") {
+                let value = message_string[1..message_string.len()-1].parse::<u32>().unwrap();
+                self.input.borrow_mut().set_z_axis(value as f32 / 1023.0);
+                continue;
+            }
+
+            if message_string.starts_with("x") {
+                let value = message_string[1..message_string.len()-1].parse::<i32>().unwrap();
+                self.input.borrow_mut().set_x_axis(value as f32 / 32768.0);
+                continue;
+            }
+
+            if message_string.starts_with("y") {
+                let value = message_string[1..message_string.len()-1].parse::<i32>().unwrap();
+                self.input.borrow_mut().set_y_axis(value as f32 / 32768.0);
                 continue;
             }
 
