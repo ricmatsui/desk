@@ -1,9 +1,10 @@
-use super::Context;
+use super::{ApiClient, Context};
 use base64::prelude::*;
 use chrono::Datelike;
 use chrono::Timelike;
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
+use std::sync::Arc;
 use std::{env, io, str};
 
 const IMAGE_WIDTH: u32 = 296;
@@ -12,9 +13,13 @@ const IMAGE_HEIGHT: u32 = 128;
 pub struct ThinkInk {
     serial_port: Option<Box<dyn SerialPort>>,
     output_buffer: Vec<u8>,
+    api_client: Arc<dyn ApiClient>,
+
     last_update: Option<f64>,
     light_spline: splines::Spline<f32, f32>,
+    servo_y_spline: splines::Spline<f32, f32>,
     game_of_life: GameOfLife,
+    solar_system: SolarSystem,
 
     font: Font,
     current_date: Option<chrono::DateTime<chrono::Local>>,
@@ -26,15 +31,22 @@ pub struct ThinkInk {
 }
 
 impl ThinkInk {
-    pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
+    pub fn new(
+        api_client: Arc<dyn ApiClient>,
+        rl: &mut raylib::RaylibHandle,
+        thread: &raylib::RaylibThread,
+    ) -> Self {
         let image = Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
 
         Self {
             serial_port: None,
             output_buffer: Vec::new(),
+            api_client,
             last_update: None,
             light_spline: create_spline(),
+            servo_y_spline: create_servo_y_spline(),
             game_of_life: GameOfLife::new(rl, thread),
+            solar_system: SolarSystem::new(rl, thread),
 
             font: rl
                 .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
@@ -73,6 +85,8 @@ impl ThinkInk {
                 Err(_) => continue,
             };
 
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+
             let mut buffer = [0; 2];
 
             let read_count = match port.read(&mut buffer) {
@@ -93,18 +107,29 @@ impl ThinkInk {
     pub fn update(&mut self, _context: &Context, rl: &RaylibHandle) {
         self.update_buffers();
 
-        if self.last_update.is_none() || rl.get_time() - self.last_update.unwrap() > 60.0 {
+        if self.last_update.is_none() || rl.get_time() - self.last_update.unwrap() > 1.0 {
             let now = chrono::Local::now();
 
             let target_value = self
                 .light_spline
-                .sample(to_minutes(now.hour(), now.minute()) as f32)
+                .sample(to_seconds(now.hour(), now.minute(), now.second()) as f32)
                 .unwrap() as u32;
 
             self.send_message(json::object! {
                 kind: "light",
                 targetValue: target_value,
-                speed: 100,
+                speed: 300,
+            });
+
+            let target_value = self
+                .servo_y_spline
+                .sample(to_seconds(now.hour(), now.minute(), now.second()) as f32)
+                .unwrap() as u32;
+
+            self.send_message(json::object! {
+                kind: "servoY",
+                targetValue: target_value,
+                speed: 1,
             });
 
             self.current_date = Some(now);
@@ -168,9 +193,6 @@ impl ThinkInk {
             || self.last_date_string.as_ref().unwrap() != self.current_date_string.as_ref().unwrap()
             || input.is_key_pressed(KeyboardKey::KEY_TWO)
         {
-            self.last_date_string = self.current_date_string.clone();
-            std::fs::write("date.txt", self.last_date_string.as_ref().unwrap()).unwrap();
-
             let mut image = self.generate_image(d, thread);
 
             update_texture_with_image(&mut self.preview_texture, &image);
@@ -180,6 +202,9 @@ impl ThinkInk {
             image.dither(2, 2, 2, 2);
 
             self.send_dithered_image(&image);
+
+            self.last_date_string = self.current_date_string.clone();
+            std::fs::write("date.txt", self.last_date_string.as_ref().unwrap()).unwrap();
 
             update_texture_with_image(
                 &mut self.preview_dithered_texture,
@@ -237,19 +262,107 @@ impl ThinkInk {
             Color::WHITE,
         );
 
-        image.draw_rectangle(
-            0,
-            IMAGE_HEIGHT as i32 - 10,
-            IMAGE_WIDTH as i32,
-            10,
-            Color::color_from_hsv(0.0, 0.0, 0.63),
+        let response = self.api_client.make_open_meteo_request().unwrap();
+        let forecast_length = response["hourly"]["temperature_2m"].len();
+
+        let mut hot_times = vec![];
+        let mut hot_start_index = None;
+        let hot_start_threshold = 75.0;
+        let hot_end_threshold = 72.0;
+        for i in 0..forecast_length {
+            let time = chrono::NaiveDateTime::parse_from_str(
+                response["hourly"]["time"][i].as_str().unwrap(),
+                "%Y-%m-%dT%H:%M",
+            )
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap();
+
+            if time < self.current_date.unwrap() {
+                continue;
+            }
+
+            let current_temperature = response["hourly"]["temperature_2m"][i].as_f64().unwrap();
+
+            if hot_start_index.is_none() && current_temperature > hot_start_threshold {
+                hot_start_index = Some(i);
+            }
+
+            if hot_start_index.is_some()
+                && (i == forecast_length - 1 || current_temperature < hot_end_threshold)
+            {
+                hot_times.push((
+                    chrono::NaiveDateTime::parse_from_str(
+                        response["hourly"]["time"][hot_start_index.unwrap()]
+                            .as_str()
+                            .unwrap(),
+                        "%Y-%m-%dT%H:%M",
+                    )
+                    .unwrap(),
+                    chrono::NaiveDateTime::parse_from_str(
+                        response["hourly"]["time"][i].as_str().unwrap(),
+                        "%Y-%m-%dT%H:%M",
+                    )
+                    .unwrap(),
+                ));
+                hot_start_index = None;
+            }
+        }
+
+        let hot_image =
+            Image::load_image_from_mem(".png", &HOT_IMAGE_DATA.to_vec(), HOT_IMAGE_DATA.len() as i32)
+                .unwrap();
+
+        let mut y = 10;
+
+        image.draw_rectangle(5, y - 5, 100 + 10, 20 * hot_times.len() as i32 + 10, Color::WHITE);
+
+        for (start, end) in hot_times {
+            image.draw(
+                &hot_image,
+                Rectangle::new(0.0, 0.0, hot_image.width as f32, hot_image.height as f32),
+                Rectangle::new(10.0, y as f32, 20.0, 20.0),
+                Color::WHITE,
+            );
+
+            let start_string = start.format("%-I%P").to_string();
+            let end_string = end.format("%-I%P").to_string();
+            image.draw_text(
+                &format!(
+                    "{}-{}",
+                    start_string[..start_string.len() - 1].to_string(),
+                    end_string[..end_string.len() - 1].to_string()
+                ),
+                10 + 20 + 5,
+                y,
+                20,
+                Color::BLACK,
+            );
+
+            y += 20;
+        }
+
+        let solar_system_image = self.solar_system.draw(d, thread);
+
+        let source_rectangle = Rectangle::new(
+            0.0,
+            0.0,
+            solar_system_image.width() as f32,
+            solar_system_image.height() as f32,
         );
-        image.draw_rectangle(
-            0,
-            IMAGE_HEIGHT as i32 - 10,
-            (self.current_date.unwrap().ordinal() * IMAGE_WIDTH / 365) as i32,
-            10,
-            Color::BLACK,
+
+        let destination_rectangle = Rectangle::new(
+            IMAGE_WIDTH as f32 - solar_system_image.width() as f32 - 14.0,
+            IMAGE_HEIGHT as f32 / 2.0 - solar_system_image.height() as f32 / 2.0,
+            solar_system_image.width() as f32,
+            solar_system_image.height() as f32,
+        );
+
+        image.draw(
+            &solar_system_image,
+            source_rectangle,
+            destination_rectangle,
+            Color::WHITE,
         );
 
         let date_string = format!("{}", self.current_date.unwrap().format("%m-%d"));
@@ -259,7 +372,7 @@ impl ThinkInk {
         image.draw_text_ex(
             &self.font,
             &date_string,
-            Vector2::new(5.0, 138.0 - size.y - 10.0),
+            Vector2::new(5.0, 138.0 - size.y),
             80.0,
             0.0,
             Color::BLACK,
@@ -305,6 +418,7 @@ impl ThinkInk {
     pub fn handle_reload(&mut self, rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) {
         self.game_of_life.handle_reload(rl, thread);
         self.light_spline = create_spline();
+        self.servo_y_spline = create_servo_y_spline();
     }
 }
 
@@ -431,9 +545,184 @@ static GAME_OF_LIFE_SHADER_FS: &[u8] = include_bytes!(concat!(
     "/../shaders/build/120/game_of_life_shader_fs.frag"
 ));
 
+pub struct SolarSystem {
+    pub render_texture: RenderTexture2D,
+    count: u32,
+}
+
+struct SolarSystemState {
+    sun_position: Vector2,
+    earth_position: Vector2,
+    earth_longitude: f32,
+    moon_position: Vector2,
+}
+
+impl SolarSystem {
+    pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
+        let render_texture = rl.load_render_texture(thread, 100, 100).unwrap();
+
+        Self {
+            render_texture,
+            count: 0,
+        }
+    }
+
+    fn calculate_state(date: chrono::DateTime<chrono::Utc>) -> SolarSystemState {
+        let gregorian_date = astro::time::Date {
+            year: date.year() as i16,
+            month: date.month() as u8,
+            decimal_day: astro::time::decimal_day(&astro::time::DayOfMonth {
+                day: date.day() as u8,
+                hr: date.hour() as u8,
+                min: date.minute() as u8,
+                sec: 0.0,
+                time_zone: 0.0,
+            }),
+            cal_type: astro::time::CalType::Gregorian,
+        };
+
+        let julian_day = astro::time::julian_day(&gregorian_date);
+
+        let (earth_longitude, _, earth_radius) =
+            astro::planet::heliocent_coords(&astro::planet::Planet::Earth, julian_day);
+        let earth_scale = 30.0;
+
+        let (moon_point, moon_radius) = astro::lunar::geocent_ecl_pos(julian_day);
+        let moon_scale = 3.5 / 100000.0;
+
+        let sun_position = Vector2::new(50.0, 50.0);
+
+        let earth_position = sun_position
+            + Vector2::new(
+                (earth_longitude.cos() * earth_radius) as f32,
+                (-earth_longitude.sin() * earth_radius) as f32,
+            ) * earth_scale;
+
+        let moon_position = earth_position
+            + Vector2::new(
+                (moon_point.long.cos() * moon_radius) as f32,
+                (-moon_point.long.sin() * moon_radius) as f32,
+            ) * moon_scale;
+
+        SolarSystemState {
+            sun_position,
+            earth_position,
+            earth_longitude: earth_longitude as f32,
+            moon_position,
+        }
+    }
+
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) -> Image {
+        let current_date = chrono::Utc::now() + chrono::Duration::days(self.count as i64);
+
+        let mut quarters = vec![];
+
+        for i in 0..4 {
+            quarters.push(SolarSystem::calculate_state(chrono::DateTime::from_utc(
+                current_date
+                    .date_naive()
+                    .with_day(1)
+                    .unwrap()
+                    .with_month(1 + i * 3)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                chrono::Utc,
+            )))
+        }
+
+        let mut earth_history = vec![];
+
+        for i in 0..30 {
+            earth_history.push(SolarSystem::calculate_state(
+                current_date - chrono::Duration::days(i as i64 * 12),
+            ))
+        }
+
+        let mut moon_history = vec![];
+
+        for i in 0..10 {
+            moon_history.push(SolarSystem::calculate_state(
+                current_date - chrono::Duration::hours(i as i64 * 24),
+            ))
+        }
+
+        let state = SolarSystem::calculate_state(current_date);
+
+        {
+            let mut d = d.begin_texture_mode(thread, &mut self.render_texture);
+
+            d.clear_background(Color::BLANK);
+            d.draw_circle_v(state.sun_position, 50.0, Color::WHITE);
+
+            for state in quarters {
+                d.draw_poly(
+                    state.sun_position
+                        + Vector2::new(
+                            state.earth_longitude.cos() * 42.0,
+                            -state.earth_longitude.sin() * 42.0,
+                        ),
+                    3,
+                    7.0,
+                    -state.earth_longitude.to_degrees() - 30.0,
+                    Color::color_from_hsv(0.0, 0.0, 0.38),
+                );
+            }
+
+            for i in 0..earth_history.len() - 2 {
+                d.draw_line_ex(
+                    earth_history[i].earth_position,
+                    earth_history[i + 1].earth_position,
+                    3.0,
+                    Color::color_from_hsv(0.0, 0.0, 0.38)
+                        .fade(1.0 - i as f32 / earth_history.len() as f32),
+                );
+            }
+
+            d.draw_circle_v(state.moon_position, 5.0, Color::WHITE);
+
+            for i in 0..moon_history.len() - 2 {
+                d.draw_line_ex(
+                    moon_history[i].moon_position,
+                    moon_history[i + 1].moon_position,
+                    3.0,
+                    Color::color_from_hsv(0.0, 0.0, 0.38)
+                        .fade(1.0 - i as f32 / moon_history.len() as f32),
+                );
+            }
+
+            d.draw_circle_v(
+                state.sun_position,
+                8.0,
+                Color::BLACK,
+            );
+
+            d.draw_circle_v(state.earth_position, 5.0, Color::BLACK);
+
+            d.draw_circle_v(
+                state.moon_position,
+                3.2,
+                Color::BLACK,
+            );
+
+            d.draw_ring(state.sun_position, 48.5, 50.0, 0.0, 360.0, 40, Color::BLACK);
+        }
+
+        let mut image = self.render_texture.get_texture_data().unwrap();
+        image.flip_vertical();
+
+        image
+    }
+}
+
 static FONT_DATA: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../assets/KgHappy-wWZZ.ttf"
+));
+
+static HOT_IMAGE_DATA: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/heat-wave.png"
 ));
 
 fn convert_dithered_image(image: &Image) -> Image {
@@ -476,13 +765,37 @@ fn update_texture_with_image(texture: &mut Texture2D, image: &Image) {
 fn create_spline() -> splines::Spline<f32, f32> {
     splines::Spline::from_vec(vec![
         splines::Key::new(0.0, 0.0, splines::Interpolation::Step(1.0)),
-        splines::Key::new(to_minutes(7, 0), 1000.0, splines::Interpolation::Cosine),
-        splines::Key::new(to_minutes(8, 0), 8190.0, splines::Interpolation::Cosine),
-        splines::Key::new(to_minutes(22, 0), 8190.0, splines::Interpolation::Cosine),
-        splines::Key::new(to_minutes(24, 0), 1000.0, splines::Interpolation::default()),
+        splines::Key::new(to_seconds(6, 0, 0), 0.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(6, 1, 0), 4096.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(7, 0, 0), 4096.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(7, 1, 0), 8190.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(21, 0, 0), 8190.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(21, 1, 0), 4096.0, splines::Interpolation::Cosine),
+        splines::Key::new(
+            to_seconds(23, 20, 0),
+            4096.0,
+            splines::Interpolation::Cosine,
+        ),
+        splines::Key::new(to_seconds(23, 21, 0), 0.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(24, 0, 0), 0.0, splines::Interpolation::default()),
     ])
 }
 
-fn to_minutes(hour: u32, minute: u32) -> f32 {
-    hour as f32 * 60.0 + minute as f32
+fn create_servo_y_spline() -> splines::Spline<f32, f32> {
+    splines::Spline::from_vec(vec![
+        splines::Key::new(0.0, 400.0, splines::Interpolation::Step(1.0)),
+        splines::Key::new(to_seconds(6, 0, 0), 400.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(6, 1, 0), 200.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(23, 20, 0), 200.0, splines::Interpolation::Cosine),
+        splines::Key::new(to_seconds(23, 21, 0), 400.0, splines::Interpolation::Cosine),
+        splines::Key::new(
+            to_seconds(24, 0, 0),
+            400.0,
+            splines::Interpolation::default(),
+        ),
+    ])
+}
+
+fn to_seconds(hour: u32, minute: u32, second: u32) -> f32 {
+    hour as f32 * 3600.0 + minute as f32 * 60.0 + second as f32
 }

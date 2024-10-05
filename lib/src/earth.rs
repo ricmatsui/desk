@@ -207,16 +207,23 @@ fn load_image(
 
     let mut projected = Image::gen_image_color(target_width, target_height, Color::WHITE);
 
-    let image = api_client.make_rammb_request("goes-18", date).unwrap();
+    let image = api_client
+        .make_rammb_request("goes-18", date)
+        .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
+        .unwrap();
 
     apply_image(&mut projected, &image, -180.0, -90.0, -136.9);
 
-    let image = api_client.make_rammb_request("goes-16", date).unwrap();
+    let image = api_client
+        .make_rammb_request("goes-16", date)
+        .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
+        .unwrap();
 
     apply_image(&mut projected, &image, -120.0, -30.0, -75.2);
 
     let mut image = api_client
         .make_rammb_request("meteosat-0deg", date)
+        .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
         .unwrap();
 
     image.crop(Rectangle {
@@ -228,7 +235,10 @@ fn load_image(
 
     apply_image(&mut projected, &image, -50.0, 40.0, 0.0);
 
-    let mut image = api_client.make_rammb_request("meteosat-9", date).unwrap();
+    let mut image = api_client
+        .make_rammb_request("meteosat-9", date)
+        .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
+        .unwrap();
 
     image.crop(Rectangle {
         x: 6.0,
@@ -239,7 +249,10 @@ fn load_image(
 
     apply_image(&mut projected, &image, 20.0, 90.0, 45.5);
 
-    let mut image = api_client.make_rammb_request("himawari", date).unwrap();
+    let mut image = api_client
+        .make_rammb_request("himawari", date)
+        .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
+        .unwrap();
 
     image.crop(Rectangle {
         x: 6.0,

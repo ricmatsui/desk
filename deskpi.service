@@ -15,5 +15,8 @@ Environment=TOGGL_PROJECT_ID={{ toggl_project_id }}
 Environment=TOGGL_WORKSPACE_ID={{ toggl_workspace_id }}
 Environment=WAKE_ON_LAN_MAC={{ wake_on_lan_mac }}
 Environment=BOSE_MAC={{ bose_mac }}
+Environment=DATADOG_API_KEY={{ datadog_api_key }}
+Environment=LATITUDE={{ latitude }}
+Environment=LONGITUDE={{ longitude }}
 Restart=always
 RestartSec=5s

@@ -19,7 +19,10 @@
 			"toggl_project_id": "ENC[AES256_GCM,data:5cEigPH2K1GE,iv:I8NbP5rdt3+4zmNrsr14xBHKYWgKcYyOXExtWw/li7c=,tag:oVtJikl+2q+Jb50UI90pqw==,type:str]",
 			"toggl_workspace_id": "ENC[AES256_GCM,data:nuCF/Fkc,iv:bXb11vmCoFFNtpgo9JuMCxjRY5G2kxKb1u/g0+HbuoA=,tag:sOO7+rKoIKgAXuhwPP0G9Q==,type:str]",
 			"wake_on_lan_mac": "ENC[AES256_GCM,data:n/mzK2B7hYT1RUlJc13bREM=,iv:zHzXlQuVumSK9q1uIdmhPwWn6/MW6k/7PmskdZVWANU=,tag:YZShi0cmJlpxD+Xexgqfeg==,type:str]",
-			"bose_mac": "ENC[AES256_GCM,data:OEE0JEeGXXue+VQULU91Zkk=,iv:yHH5hMNoV8ukGbBB8UcRy0ycr+1kSQjYndvEk7VO0kw=,tag:caxIOHfqTGmjVf3t5+WA5w==,type:str]"
+			"bose_mac": "ENC[AES256_GCM,data:OEE0JEeGXXue+VQULU91Zkk=,iv:yHH5hMNoV8ukGbBB8UcRy0ycr+1kSQjYndvEk7VO0kw=,tag:caxIOHfqTGmjVf3t5+WA5w==,type:str]",
+			"datadog_api_key": "ENC[AES256_GCM,data:/AGxOm4+r8bRyM9NGoQfLAvLO6kzaWTBCZt0WZHrUFI=,iv:SuJcFJkeyjDUO6RFERe/fWBDufM6ioBMH5TE/Myxr0o=,tag:Q3U1TvTv2+PjEl2bTErM6A==,type:str]",
+			"latitude": "ENC[AES256_GCM,data:avdweFckI0Ig,iv:OavB/ADM+iQRCWFG5+5rpBwr4elrDKXJRuq7HdThZ2E=,tag:JcuFuYJ25CMwtMP9eZ9jzg==,type:str]",
+			"longitude": "ENC[AES256_GCM,data:x8ImhOn++vxyA+Y=,iv:jsGkDX0/z6XyU7tW0p4wSKXbzXJ23KB39gYzCONDAd0=,tag:6rnAWo4hQOTxpmuIkXh/gA==,type:str]"
 		}
 	},
 	"sops": {
@@ -27,8 +30,8 @@
 		"gcp_kms": null,
 		"azure_kv": null,
 		"hc_vault": null,
-		"lastmodified": "2023-12-26T18:54:52Z",
-		"mac": "ENC[AES256_GCM,data:ATdUkTNfC1YACzbtm9jJ2MnaEi7ApHzlbJaF97aImUeO1DieO64m20Adhh6lZ7IaEMLaGOXKQJO2TpWQFtNjfD3MgqcgCFxieU8Bik44e8xHGCsekPKMo39zodlg31ktgza7KAa/bXaik4lmvjr9W9RlecJvSJNdFVKh5AL435E=,iv:c2t2txDXKksuVDVmAHm5eoyt7Mxvt2UZDd54NnP0XeA=,tag:nG/x0Xpw7/p1+pZRfLTPDQ==,type:str]",
+		"lastmodified": "2024-10-05T18:55:14Z",
+		"mac": "ENC[AES256_GCM,data:WsPE50GFhf1nNb1NQN7wivdoj+9INsJy3ZRlGC+CvwRsN1SjvfA+x7BfYCSjFzqhbVks4izOyH77WFrVpILMZwy1X4trEi+Uwwa2K9XA9xxHYwCbWSGTTM4e5KlqxTxmdzuA9cnOu38XcC8PQErtXjKxuRSKJ9Dm2bGfg8UMoqc=,iv:7/LbXQe2LzjK3iWnaAuF56kBfXb1bfznv0D2OLRWeyQ=,tag:ZkbJ0rcHkBXTo9XNYCnCOQ==,type:str]",
 		"pgp": [
 			{
 				"created_at": "2020-10-23T21:16:31Z",

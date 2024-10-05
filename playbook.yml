@@ -52,6 +52,28 @@
       when: swap_result.stdout_lines|length > 0
       notify: reboot
 
+    - name: install
+      ansible.builtin.apt:
+        name:
+          - zram-tools
+      notify: reboot
+
+    - name: configure zram
+      ansible.builtin.lineinfile:
+        path: /etc/default/zramswap
+        line: "SIZE=512"
+      notify: reboot
+
+    - name: disable services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+      notify: reboot
+
     - name: configure journal
       community.general.ini_file:
         path: /etc/systemd/journald.conf

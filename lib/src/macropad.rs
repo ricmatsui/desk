@@ -1,14 +1,13 @@
+use super::input::Input;
+use super::pixels::Pixels;
 use super::{ApiClient, Context, TogglError};
 use ::core::str::FromStr;
 use raylib::prelude::*;
 use serialport::{available_ports, SerialPort, SerialPortInfo, SerialPortType};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::cell::RefCell;
-use std::thread;
-use std::time;
 use std::{env, io, str};
-use super::input::Input;
 
 pub struct MacroPad {
     serial_port: Option<Box<dyn SerialPort>>,
@@ -16,16 +15,26 @@ pub struct MacroPad {
     output_buffer: Vec<u8>,
     api_client: Arc<dyn ApiClient>,
     input: Rc<RefCell<Input>>,
+    pixels: Rc<RefCell<Pixels>>,
+    last_update: Option<f64>,
+    current_start: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl MacroPad {
-    pub fn new(api_client: Arc<dyn ApiClient>, input: Rc<RefCell<Input>>) -> Self {
+    pub fn new(
+        api_client: Arc<dyn ApiClient>,
+        input: Rc<RefCell<Input>>,
+        pixels: Rc<RefCell<Pixels>>,
+    ) -> Self {
         Self {
             serial_port: None,
             input_buffer: Vec::new(),
             output_buffer: Vec::new(),
             api_client,
             input,
+            pixels,
+            last_update: None,
+            current_start: None,
         }
     }
 
@@ -70,12 +79,89 @@ impl MacroPad {
         }
     }
 
-    pub fn update(&mut self, context: &Context, _rl: &RaylibHandle) {
+    pub fn update(&mut self, context: &Context, rl: &RaylibHandle) {
         self.update_buffers();
         self.process_input();
 
         if context.input.borrow().is_key_pressed(KeyboardKey::KEY_ONE) {
             self.api_client.send_wake_on_lan();
+        }
+
+        if self.last_update.is_none() || rl.get_time() - self.last_update.unwrap() > 60.0 {
+            match self.get_current_time_entry() {
+                Ok(current_time_entry) => {
+                    if current_time_entry.is_null() {
+                        self.current_start = None;
+                    } else {
+                        self.current_start = Some(chrono::DateTime::from(
+                            chrono::DateTime::parse_from_rfc3339(
+                                current_time_entry["start"].as_str().unwrap(),
+                            )
+                            .unwrap(),
+                        ));
+                    }
+                }
+                Err(_) => {
+                    self.current_start = None;
+                }
+            }
+
+            self.last_update = Some(rl.get_time());
+        }
+
+        let mut pixels = self.pixels.borrow_mut();
+
+        match self.current_start {
+            Some(current_start) => {
+                let duration = chrono::Utc::now() - current_start;
+
+                let num_seconds = duration.num_milliseconds() as f32 / 1000.0;
+
+                let mut components = vec![[0; 3]; pixels.len()];
+
+                for c in 0..3 {
+                    let offset_seconds = (c * pixels.len()) as f32 * 60.0;
+                    let display_seconds = (num_seconds - offset_seconds).max(0.0);
+                    let lit_count = display_seconds / 60.0;
+
+                    let active_count = (pixels.len() as i32 - lit_count as i32)
+                        .clamp(0, pixels.len() as i32 - 1)
+                        as usize;
+
+                    let active_index = active_count as f32
+                        - display_seconds % 60.0 / 60.0 * (active_count + 1) as f32;
+
+                    if display_seconds > 0.0 {
+                        for i in pixels.len() - 1 - active_count..pixels.len() {
+                            let value =
+                                1.0 - (lit_count + active_index - i as f32).abs().clamp(0.0, 1.0);
+
+                            components[i][c] = (value * 255.0) as u8;
+                        }
+
+                        for i in 0..pixels.len() - active_count {
+                            components[i][c] = 255;
+                        }
+                    }
+                }
+
+                for i in 0..pixels.len() {
+                    pixels.set_pixel(
+                        i,
+                        Color::new(components[i][0], components[i][1], components[i][2], 255)
+                            .fade(0.13),
+                    );
+                }
+
+                if !pixels.enabled() {
+                    pixels.set_enabled(true);
+                }
+            }
+            None => {
+                if pixels.enabled() {
+                    pixels.set_enabled(false);
+                }
+            }
         }
     }
 
@@ -151,19 +237,25 @@ impl MacroPad {
 
             // Process message starting with p and parse the rest of the string as an integer
             if message_string.starts_with("p") {
-                let value = message_string[1..message_string.len()-1].parse::<u32>().unwrap();
+                let value = message_string[1..message_string.len() - 1]
+                    .parse::<u32>()
+                    .unwrap();
                 self.input.borrow_mut().set_z_axis(value as f32 / 1023.0);
                 continue;
             }
 
             if message_string.starts_with("x") {
-                let value = message_string[1..message_string.len()-1].parse::<i32>().unwrap();
+                let value = message_string[1..message_string.len() - 1]
+                    .parse::<i32>()
+                    .unwrap();
                 self.input.borrow_mut().set_x_axis(value as f32 / 32768.0);
                 continue;
             }
 
             if message_string.starts_with("y") {
-                let value = message_string[1..message_string.len()-1].parse::<i32>().unwrap();
+                let value = message_string[1..message_string.len() - 1]
+                    .parse::<i32>()
+                    .unwrap();
                 self.input.borrow_mut().set_y_axis(value as f32 / 32768.0);
                 continue;
             }
@@ -200,7 +292,7 @@ impl MacroPad {
     fn send_time_entries(&mut self) {
         let result = self
             .api_client
-            .make_toggl_request("GET", "api/v8/time_entries", None);
+            .make_toggl_request("GET", "api/v9/me/time_entries", None);
 
         let response = match result {
             Err(_) => return self.send_error_message(),
@@ -222,30 +314,32 @@ impl MacroPad {
     fn continue_time_entry(&mut self) {
         let result = self
             .api_client
-            .make_toggl_request("GET", "api/v8/time_entries", None);
+            .make_toggl_request("GET", "api/v9/me/time_entries", None);
 
         let response = match result {
             Err(_) => return self.send_error_message(),
             Ok(response) => response,
         };
 
-        let member = match response.members().last() {
+        let member = match response.members().next() {
             None => return self.send_error_message(),
             Some(member) => member,
         };
 
         let result = self.api_client.make_toggl_request(
             "POST",
-            "api/v8/time_entries/start",
+            &format!("api/v9/workspaces/{}/time_entries", &env::var("TOGGL_WORKSPACE_ID").unwrap()),
             Some(&json::object! {
-                time_entry: {
-                    created_with: "deskpi",
-                    pid: i64::from_str_radix(&env::var("TOGGL_PROJECT_ID").unwrap(), 10).unwrap(),
-                    wid: i64::from_str_radix(&env::var("TOGGL_WORKSPACE_ID").unwrap(), 10).unwrap(),
-                    description: member["description"].as_str().unwrap(),
-                }
+                created_with: "deskpi",
+                project_id: i64::from_str_radix(&env::var("TOGGL_PROJECT_ID").unwrap(), 10).unwrap(),
+                workspace_id: i64::from_str_radix(&env::var("TOGGL_WORKSPACE_ID").unwrap(), 10).unwrap(),
+                start: chrono::Utc::now().to_rfc3339(),
+                duration: -1,
+                description: member["description"].as_str().unwrap(),
             }),
         );
+
+        self.last_update = None;
 
         match result {
             Err(_) => self.send_error_message(),
@@ -256,16 +350,18 @@ impl MacroPad {
     fn start_time_entry(&mut self, message: &json::JsonValue) {
         let result = self.api_client.make_toggl_request(
             "POST",
-            "api/v8/time_entries/start",
+            &format!("api/v9/workspaces/{}/time_entries", &env::var("TOGGL_WORKSPACE_ID").unwrap()),
             Some(&json::object! {
-                time_entry: {
-                    created_with: "deskpi",
-                    pid: i64::from_str_radix(&env::var("TOGGL_PROJECT_ID").unwrap(), 10).unwrap(),
-                    wid: i64::from_str_radix(&env::var("TOGGL_WORKSPACE_ID").unwrap(), 10).unwrap(),
-                    description: message["timeEntry"]["description"].as_str().unwrap(),
-                }
+                created_with: "deskpi",
+                project_id: i64::from_str_radix(&env::var("TOGGL_PROJECT_ID").unwrap(), 10).unwrap(),
+                workspace_id: i64::from_str_radix(&env::var("TOGGL_WORKSPACE_ID").unwrap(), 10).unwrap(),
+                start: chrono::Utc::now().to_rfc3339(),
+                duration: -1,
+                description: message["timeEntry"]["description"].as_str().unwrap(),
             }),
         );
+
+        self.last_update = None;
 
         match result {
             Err(_) => self.send_error_message(),
@@ -284,13 +380,16 @@ impl MacroPad {
         }
 
         let result = self.api_client.make_toggl_request(
-            "PUT",
+            "PATCH",
             &format!(
-                "api/v8/time_entries/{}/stop",
+                "api/v9/workspaces/{}/time_entries/{}/stop",
+                &env::var("TOGGL_WORKSPACE_ID").unwrap(),
                 current_time_entry["id"].as_i64().unwrap()
             ),
             Some(&json::object! {}),
         );
+
+        self.last_update = None;
 
         match result {
             Err(_) => self.send_error_message(),
@@ -317,15 +416,16 @@ impl MacroPad {
         let result = self.api_client.make_toggl_request(
             "PUT",
             &format!(
-                "api/v8/time_entries/{}",
+                "api/v9/workspaces/{}/time_entries/{}",
+                &env::var("TOGGL_WORKSPACE_ID").unwrap(),
                 current_time_entry["id"].as_i64().unwrap()
             ),
             Some(&json::object! {
-                time_entry: {
-                    start: updated_start.to_rfc3339()
-                }
+                start: updated_start.to_rfc3339()
             }),
         );
+
+        self.last_update = None;
 
         match result {
             Err(_) => self.send_error_message(),
@@ -355,9 +455,9 @@ impl MacroPad {
     fn get_current_time_entry(&self) -> Result<json::JsonValue, TogglError> {
         let response =
             self.api_client
-                .make_toggl_request("GET", "api/v8/time_entries/current", None)?;
+                .make_toggl_request("GET", "api/v9/me/time_entries/current", None)?;
 
-        Ok(response["data"].to_owned())
+        Ok(response.to_owned())
     }
 
     fn send_success_message(&mut self) {

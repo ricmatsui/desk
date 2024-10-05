@@ -13,7 +13,11 @@ commands:
     -x 'run --features reloader'"
   lib: >
     cargo watch
+    --no-vcs-ignores
     -w lib
-    -w shaders
-    -x 'make shaders_build'
+    -w shaders/build
     -x 'build --features reloader -p lib'
+  shaders: >
+    cargo watch
+    -w shaders/src
+    -x 'make shaders_build'

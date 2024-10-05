@@ -68,23 +68,6 @@ impl Pixels {
     }
 
     pub fn update(&mut self, context: &Context, _rl: &RaylibHandle) {
-        if self.enabled {
-            for i in 0..self.pixels.len() {
-                self.set_pixel(
-                    i,
-                    Color::color_from_hsv(context.time as f32 * 90.0 + i as f32 * 2.0, 1.0, 1.0)
-                        .fade(
-                            ((context.time as f32 * self.fade_speed
-                                + i as f32 * self.fade_frequency)
-                                .sin()
-                                + 1.0)
-                                / 2.0
-                                * 0.15,
-                        ),
-                );
-            }
-        }
-
         if self.pixels_updated {
             self.pixels_updated = false;
 
@@ -102,7 +85,7 @@ impl Pixels {
         }
     }
 
-    fn set_pixel(&mut self, index: usize, color: Color) {
+    pub fn set_pixel(&mut self, index: usize, color: Color) {
         self.pixels_updated = true;
         self.pixels[index] = color;
     }
@@ -112,19 +95,43 @@ impl Pixels {
         self.enabled = enabled;
     }
 
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn len(&self) -> usize {
+        self.pixels.len()
+    }
+
     pub fn draw(&self, _context: &Context, d: &mut RaylibDrawHandle) {
         #[cfg(not(feature = "pi"))]
         {
             d.draw_rectangle(10, 300, 12 * self.pixels.len() as i32, 8, Color::BLACK);
 
             for i in 0..self.pixels.len() {
+                let faded_color =
+                    self.pixels[i].fade(self.pixels[i].a as f32 / 255.0 * 10.0 * self.brightness);
+
                 d.draw_rectangle(
                     10 + i as i32 * 12,
                     300,
                     8,
+                    4,
+                    Color::new(faded_color.r, 0, 0, 255),
+                );
+                d.draw_rectangle(
+                    10 + i as i32 * 12,
+                    304,
                     8,
-                    self.pixels[i]
-                        .fade(self.pixels[i].a as f32 / 255.0 * 10.0 * self.brightness),
+                    4,
+                    Color::new(0, faded_color.g, 0, 255),
+                );
+                d.draw_rectangle(
+                    10 + i as i32 * 12,
+                    308,
+                    8,
+                    4,
+                    Color::new(0, 0, faded_color.b, 255),
                 );
             }
         }

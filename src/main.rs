@@ -9,11 +9,12 @@ use rppal::i2c::I2c;
 
 #[cfg(feature = "reloader")]
 use hot_lib::{
-    draw, handle_reload, init, update, shutdown, ApiClient as LibApiClient, I2cOperation, TogglError,
+    draw, handle_reload, init, shutdown, update, ApiClient as LibApiClient, I2cOperation,
+    TogglError,
 };
 
 #[cfg(not(feature = "reloader"))]
-use lib::{draw, init, update, shutdown, ApiClient as LibApiClient, I2cOperation, TogglError};
+use lib::{draw, init, shutdown, update, ApiClient as LibApiClient, I2cOperation, TogglError};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -45,7 +46,7 @@ fn main() {
 
     let (mut rl, thread) = raylib::init().title("Desk Pi").size(width, height).build();
 
-    rl.set_target_fps(60);
+    rl.set_target_fps(30);
 
     #[cfg(feature = "pi")]
     rl.hide_cursor();
@@ -56,6 +57,7 @@ fn main() {
     while !rl.window_should_close() && rl.get_time() < 82700 as f64 {
         state.macropad.open_serial();
         state.thinkink.open_serial();
+        state.circuit_playground.open_serial();
 
         update(&mut state, &mut rl, &thread);
 
@@ -294,6 +296,29 @@ impl LibApiClient for ApiClient {
         Ok(image)
     }
 
+    fn make_open_meteo_request(&self) -> Result<json::JsonValue, Box<dyn std::error::Error>> {
+        let request = self
+            .request_agent
+            .request("GET", "https://api.open-meteo.com/v1/forecast")
+            .query("latitude", &env::var("LATITUDE").unwrap())
+            .query("longitude", &env::var("LONGITUDE").unwrap())
+            .query("hourly", "temperature_2m,precipitation_probability")
+            .query("temperature_unit", "fahrenheit")
+            .query("wind_speed_unit", "mph")
+            .query("precipitation_unit", "inch")
+            .query("timezone", "America/Los_Angeles")
+            .query("forecast_days", "2")
+            .set("Content-Type", "application/json");
+
+        log::debug!(target: "open_meteo", "-> {}", request.url());
+        let result = request.call()?;
+
+        let response_string = result.into_string()?;
+        log::debug!(target: "open_meteo", "<- {}", response_string);
+
+        Ok(json::parse(&response_string)?)
+    }
+
     fn make_toggl_request(
         &self,
         method: &str,
@@ -373,6 +398,23 @@ impl LibApiClient for ApiClient {
 
         log::debug!(target: "wake_on_lan", "-> {:02x?}", address);
         wake_on_lan::MagicPacket::new(&address).send().unwrap();
+    }
+
+    fn submit_metrics(&self, metrics: json::JsonValue) {
+        let metrics_string = metrics.dump();
+
+        log::debug!(target: "datadog", "-> {}", &metrics_string);
+
+        let result = self
+            .request_agent
+            .request("POST", "https://api.datadoghq.com/api/v2/series")
+            .set("Content-Type", "application/json")
+            .set("DD-API-KEY", &env::var("DATADOG_API_KEY").unwrap())
+            .send_string(&metrics_string)
+            .ok()
+            .and_then(|response| response.into_string().ok());
+
+        log::debug!(target: "datadog", "<- {}", &result.unwrap_or(String::from("[error]")));
     }
 }
 

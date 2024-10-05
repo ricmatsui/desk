@@ -93,6 +93,7 @@ script = "rm -rf external/glslcc/build"
 
 [tasks.shaders_build]
 workspace = false
+condition = { files_modified = { input = [ "${CARGO_MAKE_WORKING_DIRECTORY}/external/glslcc/build/src/glslcc", "${CARGO_MAKE_WORKING_DIRECTORY}/shaders/src/**/*", ], output = [ "${CARGO_MAKE_WORKING_DIRECTORY}/shaders/build/**/*", ] } }
 script = '''
 GLSLCC="$CARGO_MAKE_WORKING_DIRECTORY/external/glslcc/build/src/glslcc"
 BUILD="$CARGO_MAKE_WORKING_DIRECTORY/shaders/build"

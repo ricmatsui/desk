@@ -17,6 +17,7 @@ log = "0.4.17"
 macaddr = "1.0.1"
 splines = "4.3.1"
 base64 = "0.22.0"
+astro = "2.0.0"
 
 [features]
 default = []

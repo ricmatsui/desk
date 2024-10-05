@@ -1,21 +1,23 @@
 use backlight::Backlight;
+use circuit_playground::CircuitPlayground;
 use earth::Earth;
 use input::Input;
 use macropad::MacroPad;
-use thinkink::ThinkInk;
 use matrix::Matrix;
 use pixels::Pixels;
 use raylib::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
+use thinkink::ThinkInk;
 
 mod backlight;
+pub mod circuit_playground;
 mod earth;
 mod input;
 pub mod macropad;
-pub mod thinkink;
 mod matrix;
 mod pixels;
+pub mod thinkink;
 
 pub trait ApiClient: Send + Sync {
     fn make_noaa_tile_request(&self, level: u8, x: u8, y: u8) -> Image;
@@ -30,6 +32,7 @@ pub trait ApiClient: Send + Sync {
         height: u32,
         date: chrono::DateTime<chrono::Utc>,
     ) -> Result<Image, Box<dyn std::error::Error>>;
+    fn make_open_meteo_request(&self) -> Result<json::JsonValue, Box<dyn std::error::Error>>;
     fn make_toggl_request(
         &self,
         method: &str,
@@ -39,6 +42,7 @@ pub trait ApiClient: Send + Sync {
     fn switch_bose_devices(&self, addresses: [macaddr::MacAddr6; 2]);
     fn enqueue_i2c(&self, operations: Vec<I2cOperation>);
     fn send_wake_on_lan(&self);
+    fn submit_metrics(&self, metrics: json::JsonValue);
 }
 
 #[derive(Debug, Clone)]
@@ -53,8 +57,9 @@ pub enum I2cOperation {
 
 pub struct State {
     context: Context,
-    pixels: pixels::Pixels,
+    pixels: std::rc::Rc<std::cell::RefCell<pixels::Pixels>>,
     pub macropad: macropad::MacroPad,
+    pub circuit_playground: circuit_playground::CircuitPlayground,
     pub thinkink: thinkink::ThinkInk,
     backlight: backlight::Backlight,
     earth: earth::Earth,
@@ -83,6 +88,7 @@ pub fn init(
     api_client: std::sync::Arc<dyn ApiClient>,
 ) -> State {
     let input = Rc::new(RefCell::new(Input::new()));
+    let pixels = Rc::new(RefCell::new(Pixels::new(api_client.clone())));
 
     State {
         context: Context {
@@ -90,9 +96,10 @@ pub fn init(
             input: input.clone(),
             screen_enabled: false,
         },
-        pixels: Pixels::new(api_client.clone()),
-        macropad: MacroPad::new(api_client.clone(), input.clone()),
-        thinkink: ThinkInk::new(rl, thread),
+        pixels: pixels.clone(),
+        macropad: MacroPad::new(api_client.clone(), input.clone(), pixels.clone()),
+        circuit_playground: CircuitPlayground::new(rl, thread, api_client.clone()),
+        thinkink: ThinkInk::new(api_client.clone(), rl, thread),
         backlight: Backlight::new(),
         earth: Earth::new(rl, thread, api_client.clone()),
         //matrix: Matrix::new(rl, thread, api_client.clone()),
@@ -110,7 +117,6 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
         && input.is_active()
         && !input.is_key_released(KeyboardKey::KEY_Y)
     {
-        state.pixels.set_enabled(true);
         //state.matrix.set_enabled(true);
         state.backlight.set_enabled(true);
         state.context.screen_enabled = true;
@@ -120,7 +126,6 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
         && (input.is_key_pressed(KeyboardKey::KEY_Y)
             || state.context.time - input.last_activity_time() > 60.0)
     {
-        state.pixels.set_enabled(false);
         //state.matrix.set_enabled(false);
         state.backlight.set_enabled(false);
         state.context.screen_enabled = false;
@@ -128,10 +133,11 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
 
     drop(input);
 
-    state.pixels.update(&state.context, rl);
+    state.pixels.borrow_mut().update(&state.context, rl);
     //state.matrix.update(&state.context, rl, thread);
 
     state.macropad.update(&state.context, rl);
+    state.circuit_playground.update(&state.context, rl);
     state.thinkink.update(&state.context, rl);
     state.earth.update(&state.context, rl, thread);
 }
@@ -144,8 +150,9 @@ pub fn draw(
 ) {
     d.clear_background(Color::BLACK);
 
-    state.pixels.draw(&state.context, d);
+    state.pixels.borrow().draw(&state.context, d);
     state.macropad.draw(&state.context, d);
+    state.circuit_playground.draw(&state.context, d);
     state.thinkink.draw(&state.context, d, thread);
     //state.matrix.draw(&state.context, d, thread);
     state.earth.draw(&state.context, d, thread);
@@ -169,6 +176,7 @@ pub fn draw(
 #[no_mangle]
 pub fn shutdown(state: State) {
     state.earth.shutdown();
+    state.circuit_playground.shutdown();
 }
 
 #[cfg(feature = "reloader")]
