@@ -55,7 +55,7 @@ dependencies = [
 [tasks.patch]
 workspace = false
 command = "cargo"
-args = ["patch"]
+args = ["patch-crate"]
 
 [tasks.bin_build]
 workspace = false

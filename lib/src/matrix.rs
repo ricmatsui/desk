@@ -60,42 +60,18 @@ impl Matrix {
             image: Image::gen_image_checked(13, 9, 1, 1, Color::BLACK, Color::WHITE),
             scroll_position: 0.0,
             updated: false,
-            enabled: false,
+            enabled: true,
             driver_enabled: false,
             api_client,
         }
     }
 
-    pub fn update(
-        &mut self,
-        context: &Context,
-        rl: &mut RaylibHandle,
-        _thread: &RaylibThread,
-    ) {
+    pub fn update(&mut self, context: &Context, rl: &mut RaylibHandle, _thread: &RaylibThread) {
         if self.enabled {
-            let text_width = measure_text(TEXT, 10);
-
-            self.scroll_position -= 20.0 * rl.get_frame_time();
-            if self.scroll_position < -text_width as f32 - 10.0 {
-                self.scroll_position = 0.0;
-            }
-
             self.image.draw_rectangle(0, 0, 13, 9, Color::BLACK);
-            self.image.draw_text(
-                TEXT,
-                self.scroll_position as i32,
-                0,
-                10,
-                Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
-            );
-            let text_width = measure_text(TEXT, 10);
-            self.image.draw_text(
-                TEXT,
-                self.scroll_position as i32 + text_width + 10,
-                0,
-                10,
-                Color::color_from_hsv(context.time as f32 * 90.0, 1.0, 1.0),
-            );
+            self.image.draw_pixel(6, 0, Color::WHITE);
+            self.image.draw_pixel(6, 2, Color::WHITE);
+
             self.updated = true;
         }
 
@@ -116,19 +92,20 @@ impl Matrix {
         }
     }
 
-    pub fn draw(
-        &mut self,
-        _context: &Context,
-        d: &mut RaylibDrawHandle,
-        _thread: &RaylibThread,
-    ) {
+    pub fn draw(&mut self, _context: &Context, d: &mut RaylibDrawHandle, _thread: &RaylibThread) {
         #[cfg(not(feature = "pi"))]
         {
             let data = self.image.get_image_data();
-            d.draw_rectangle(575, 10, 13 * 9, 9 * 9, Color::DARKGRAY);
+            d.draw_rectangle(575, 10, 13 * 9, 9 * 9, Color::BLACK);
             for x in 0..13 {
                 for y in 0..9 {
-                    d.draw_rectangle(575 + x * 9, 10 + y * 9, 6, 6, data[(y * 13 + x) as usize]);
+                    let color = data[(y * 13 + x) as usize];
+
+                    if color == Color::BLACK {
+                        d.draw_circle(575 + x * 9, 10 + y * 9, 3.0, Color::DARKGRAY);
+                    } else {
+                        d.draw_circle(575 + x * 9, 10 + y * 9, 3.0, color);
+                    }
                 }
             }
         }

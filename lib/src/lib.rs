@@ -63,7 +63,7 @@ pub struct State {
     pub thinkink: thinkink::ThinkInk,
     backlight: backlight::Backlight,
     earth: earth::Earth,
-    //matrix: matrix::Matrix,
+    matrix: matrix::Matrix,
 }
 
 pub struct Context {
@@ -102,7 +102,7 @@ pub fn init(
         thinkink: ThinkInk::new(api_client.clone(), rl, thread),
         backlight: Backlight::new(),
         earth: Earth::new(rl, thread, api_client.clone()),
-        //matrix: Matrix::new(rl, thread, api_client.clone()),
+        matrix: Matrix::new(rl, thread, api_client.clone()),
     }
 }
 
@@ -134,7 +134,7 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
     drop(input);
 
     state.pixels.borrow_mut().update(&state.context, rl);
-    //state.matrix.update(&state.context, rl, thread);
+    state.matrix.update(&state.context, rl, thread);
 
     state.macropad.update(&state.context, rl);
     state.circuit_playground.update(&state.context, rl);
@@ -154,7 +154,7 @@ pub fn draw(
     state.macropad.draw(&state.context, d);
     state.circuit_playground.draw(&state.context, d);
     state.thinkink.draw(&state.context, d, thread);
-    //state.matrix.draw(&state.context, d, thread);
+    state.matrix.draw(&state.context, d, thread);
     state.earth.draw(&state.context, d, thread);
 
     let input = state.context.input.borrow();
