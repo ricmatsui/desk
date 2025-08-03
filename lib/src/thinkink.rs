@@ -22,6 +22,7 @@ pub struct ThinkInk {
     solar_system: SolarSystem,
 
     font: Font,
+    font_solid: Font,
     current_date: Option<chrono::DateTime<chrono::Local>>,
     current_date_string: Option<String>,
     last_date_string: Option<String>,
@@ -50,6 +51,9 @@ impl ThinkInk {
 
             font: rl
                 .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
+                .unwrap(),
+            font_solid: rl
+                .load_font_from_memory(thread, ".ttf", FONT_SOLID_DATA, 30, FontLoadEx::Default(0))
                 .unwrap(),
             current_date: None,
             current_date_string: None,
@@ -265,10 +269,28 @@ impl ThinkInk {
         let response = self.api_client.make_open_meteo_request().unwrap();
         let forecast_length = response["hourly"]["temperature_2m"].len();
 
+        let start_of_day = self
+            .current_date
+            .unwrap()
+            .with_time(chrono::NaiveTime::MIN)
+            .unwrap();
+        let tomorrow = start_of_day + chrono::Duration::days(1);
+        let mid_day = start_of_day + chrono::Duration::hours(12);
+        let tomorrow_mid_day =
+            start_of_day + chrono::Duration::days(1) + chrono::Duration::hours(12);
+
         let mut hot_times = vec![];
         let mut hot_start_index = None;
+
         let hot_start_threshold = 75.0;
         let hot_end_threshold = 72.0;
+
+        let mut cold_times = vec![];
+        let mut cold_start_index = None;
+
+        let cold_start_threshold = 50.0;
+        let cold_end_threshold = 55.0;
+
         for i in 0..forecast_length {
             let time = chrono::NaiveDateTime::parse_from_str(
                 response["hourly"]["time"][i].as_str().unwrap(),
@@ -278,13 +300,16 @@ impl ThinkInk {
             .and_local_timezone(chrono::Local)
             .unwrap();
 
-            if time < self.current_date.unwrap() {
+            if time < start_of_day {
                 continue;
             }
 
             let current_temperature = response["hourly"]["temperature_2m"][i].as_f64().unwrap();
 
-            if hot_start_index.is_none() && current_temperature > hot_start_threshold {
+            if hot_start_index.is_none()
+                && current_temperature > hot_start_threshold
+                && time < tomorrow
+            {
                 hot_start_index = Some(i);
             }
 
@@ -307,15 +332,59 @@ impl ThinkInk {
                 ));
                 hot_start_index = None;
             }
+
+            if cold_start_index.is_none()
+                && current_temperature < cold_start_threshold
+                && time > mid_day
+                && time < tomorrow_mid_day
+            {
+                cold_start_index = Some(i);
+            }
+
+            if cold_start_index.is_some()
+                && (i == forecast_length - 1 || current_temperature > cold_end_threshold)
+            {
+                cold_times.push((
+                    chrono::NaiveDateTime::parse_from_str(
+                        response["hourly"]["time"][cold_start_index.unwrap()]
+                            .as_str()
+                            .unwrap(),
+                        "%Y-%m-%dT%H:%M",
+                    )
+                    .unwrap(),
+                    chrono::NaiveDateTime::parse_from_str(
+                        response["hourly"]["time"][i].as_str().unwrap(),
+                        "%Y-%m-%dT%H:%M",
+                    )
+                    .unwrap(),
+                ));
+                cold_start_index = None;
+            }
         }
 
-        let hot_image =
-            Image::load_image_from_mem(".png", &HOT_IMAGE_DATA.to_vec(), HOT_IMAGE_DATA.len() as i32)
-                .unwrap();
+        let hot_image = Image::load_image_from_mem(
+            ".png",
+            &HOT_IMAGE_DATA.to_vec(),
+            HOT_IMAGE_DATA.len() as i32,
+        )
+        .unwrap();
+
+        let cold_image = Image::load_image_from_mem(
+            ".png",
+            &COLD_IMAGE_DATA.to_vec(),
+            COLD_IMAGE_DATA.len() as i32,
+        )
+        .unwrap();
 
         let mut y = 10;
 
-        image.draw_rectangle(5, y - 5, 100 + 10, 20 * hot_times.len() as i32 + 10, Color::WHITE);
+        image.draw_rectangle(
+            5,
+            y - 5,
+            100 + 10,
+            25 * (hot_times.len() + cold_times.len()) as i32 + 10,
+            Color::WHITE,
+        );
 
         for (start, end) in hot_times {
             image.draw(
@@ -327,19 +396,46 @@ impl ThinkInk {
 
             let start_string = start.format("%-I%P").to_string();
             let end_string = end.format("%-I%P").to_string();
-            image.draw_text(
+            image.draw_text_ex(
+                &self.font_solid,
                 &format!(
                     "{}-{}",
                     start_string[..start_string.len() - 1].to_string(),
                     end_string[..end_string.len() - 1].to_string()
                 ),
-                10 + 20 + 5,
-                y,
-                20,
+                Vector2::new(10.0 + 20.0 + 5.0, (y - 5) as f32),
+                30.0,
+                0.0,
                 Color::BLACK,
             );
 
-            y += 20;
+            y += 25;
+        }
+
+        for (start, end) in cold_times {
+            image.draw(
+                &cold_image,
+                Rectangle::new(0.0, 0.0, cold_image.width as f32, cold_image.height as f32),
+                Rectangle::new(10.0, y as f32, 20.0, 20.0),
+                Color::WHITE,
+            );
+
+            let start_string = start.format("%-I%P").to_string();
+            let end_string = end.format("%-I%P").to_string();
+            image.draw_text_ex(
+                &self.font_solid,
+                &format!(
+                    "{}-{}",
+                    start_string[..start_string.len() - 1].to_string(),
+                    end_string[..end_string.len() - 1].to_string()
+                ),
+                Vector2::new(10.0 + 20.0 + 5.0, (y - 5) as f32),
+                20.0,
+                0.0,
+                Color::BLACK,
+            );
+
+            y += 25;
         }
 
         let solar_system_image = self.solar_system.draw(d, thread);
@@ -555,6 +651,10 @@ struct SolarSystemState {
     earth_position: Vector2,
     earth_longitude: f32,
     moon_position: Vector2,
+    moon_geopoint: astro::coords::EclPoint,
+    moon_closest_new_phase_direction: f64,
+    moon_closest_full_phase_direction: f64,
+    date: chrono::DateTime<chrono::Utc>,
 }
 
 impl SolarSystem {
@@ -585,10 +685,10 @@ impl SolarSystem {
 
         let (earth_longitude, _, earth_radius) =
             astro::planet::heliocent_coords(&astro::planet::Planet::Earth, julian_day);
-        let earth_scale = 30.0;
+        let earth_scale = 28.0;
 
-        let (moon_point, moon_radius) = astro::lunar::geocent_ecl_pos(julian_day);
-        let moon_scale = 3.5 / 100000.0;
+        let (moon_geopoint, moon_radius) = astro::lunar::geocent_ecl_pos(julian_day);
+        let moon_scale = 2.8 / 100000.0;
 
         let sun_position = Vector2::new(50.0, 50.0);
 
@@ -600,48 +700,86 @@ impl SolarSystem {
 
         let moon_position = earth_position
             + Vector2::new(
-                (moon_point.long.cos() * moon_radius) as f32,
-                (-moon_point.long.sin() * moon_radius) as f32,
+                (moon_geopoint.long.cos() * moon_radius) as f32,
+                (-moon_geopoint.long.sin() * moon_radius) as f32,
             ) * moon_scale;
+
+        let closest_new = astro::lunar::time_of_phase(&gregorian_date, &astro::lunar::Phase::New);
+        let closest_full = astro::lunar::time_of_phase(&gregorian_date, &astro::lunar::Phase::Full);
 
         SolarSystemState {
             sun_position,
             earth_position,
             earth_longitude: earth_longitude as f32,
             moon_position,
+            moon_geopoint,
+            moon_closest_new_phase_direction: closest_new - julian_day,
+            moon_closest_full_phase_direction: closest_full - julian_day,
+            date,
         }
     }
 
     pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) -> Image {
         let current_date = chrono::Utc::now() + chrono::Duration::days(self.count as i64);
 
-        let mut quarters = vec![];
+        let mut months = vec![];
 
-        for i in 0..4 {
-            quarters.push(SolarSystem::calculate_state(chrono::DateTime::from_utc(
-                current_date
-                    .date_naive()
-                    .with_day(1)
-                    .unwrap()
-                    .with_month(1 + i * 3)
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                chrono::Utc,
-            )))
+        for i in 0..12 {
+            months.push((
+                i,
+                SolarSystem::calculate_state(chrono::DateTime::from_naive_utc_and_offset(
+                    current_date
+                        .date_naive()
+                        .with_day(1)
+                        .unwrap()
+                        .with_month(1 + i)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap(),
+                    chrono::Utc,
+                )),
+            ))
+        }
+
+        let mut moon_predictions = vec![];
+
+        for i in 0..27 * 24 / 5 {
+            moon_predictions.push(SolarSystem::calculate_state(
+                current_date + chrono::Duration::hours(i as i64 * 5),
+            ));
+        }
+
+        let mut moon_ecliptics = vec![];
+        let mut lunar_eclipses = vec![];
+        let mut solar_eclipses = vec![];
+
+        for window in moon_predictions.windows(2) {
+            if let [previous, current] = window {
+                if previous.moon_geopoint.lat.signum() != current.moon_geopoint.lat.signum() {
+                    moon_ecliptics.push(previous);
+
+                    if previous.moon_closest_full_phase_direction.abs() < 1.0 {
+                        lunar_eclipses.push(previous);
+                    }
+
+                    if previous.moon_closest_new_phase_direction.abs() < 1.0 {
+                        solar_eclipses.push(previous);
+                    }
+                }
+            }
         }
 
         let mut earth_history = vec![];
 
-        for i in 0..30 {
+        for i in 0..15 {
             earth_history.push(SolarSystem::calculate_state(
-                current_date - chrono::Duration::days(i as i64 * 12),
+                current_date - chrono::Duration::days(i as i64 * 4),
             ))
         }
 
         let mut moon_history = vec![];
 
-        for i in 0..10 {
+        for i in 0..8 {
             moon_history.push(SolarSystem::calculate_state(
                 current_date - chrono::Duration::hours(i as i64 * 24),
             ))
@@ -652,64 +790,142 @@ impl SolarSystem {
         {
             let mut d = d.begin_texture_mode(thread, &mut self.render_texture);
 
-            d.clear_background(Color::BLANK);
-            d.draw_circle_v(state.sun_position, 50.0, Color::WHITE);
+            log::debug!("earth: {:?}", state.earth_position);
+            let mut d = d.begin_mode2D(Camera2D {
+                rotation: 0.0,
+                target: state.earth_position,
+                offset: Vector2::new(50.0, 50.0),
+                zoom: 2.0,
+            });
 
-            for state in quarters {
-                d.draw_poly(
-                    state.sun_position
-                        + Vector2::new(
-                            state.earth_longitude.cos() * 42.0,
-                            -state.earth_longitude.sin() * 42.0,
-                        ),
-                    3,
-                    7.0,
-                    -state.earth_longitude.to_degrees() - 30.0,
-                    Color::color_from_hsv(0.0, 0.0, 0.38),
-                );
+            d.clear_background(Color::WHITE);
+
+            for moon_ecliptic in moon_ecliptics {
+                let point = state.earth_position + moon_ecliptic.moon_position
+                    - moon_ecliptic.earth_position;
+
+                if moon_ecliptic.date - state.date > chrono::Duration::days(20) {
+                    continue;
+                }
+
+                d.draw_circle_v(point, 1.0, Color::color_from_hsv(0.0, 0.0, 0.38));
             }
 
-            for i in 0..earth_history.len() - 2 {
-                d.draw_line_ex(
-                    earth_history[i].earth_position,
-                    earth_history[i + 1].earth_position,
-                    3.0,
-                    Color::color_from_hsv(0.0, 0.0, 0.38)
-                        .fade(1.0 - i as f32 / earth_history.len() as f32),
-                );
+            for lunar_eclipse in lunar_eclipses.iter() {
+                let point = state.earth_position + lunar_eclipse.moon_position
+                    - lunar_eclipse.earth_position;
+
+                d.draw_circle_v(point, 2.8, Color::color_from_hsv(0.0, 0.0, 0.38));
+            }
+
+            for solar_eclipse in solar_eclipses.iter() {
+                let point = state.earth_position + solar_eclipse.moon_position
+                    - solar_eclipse.earth_position;
+
+                d.draw_circle_v(point, 2.8, Color::color_from_hsv(0.0, 0.0, 0.38));
+            }
+
+            for (index, state) in months {
+                let earth_position =
+                    Vector2::new(state.earth_longitude.cos(), -state.earth_longitude.sin());
+
+                if index % 3 == 0 {
+                    d.draw_poly(
+                        state.sun_position + earth_position * 49.0,
+                        3,
+                        7.0,
+                        -state.earth_longitude.to_degrees() - 30.0,
+                        Color::color_from_hsv(0.0, 0.0, 0.38),
+                    );
+                } else {
+                    d.draw_line_ex(
+                        state.sun_position + earth_position * 45.0,
+                        state.sun_position + earth_position * 55.0,
+                        2.0,
+                        Color::color_from_hsv(0.0, 0.0, 0.38),
+                    );
+                }
+            }
+
+            for (i, window) in earth_history.windows(2).enumerate() {
+                if let [previous, current] = window {
+                    d.draw_line_ex(
+                        previous.earth_position,
+                        current.earth_position,
+                        3.0,
+                        Color::color_from_hsv(0.0, 0.0, 0.38)
+                            .fade(1.0 - i as f32 / earth_history.len() as f32),
+                    );
+                }
             }
 
             d.draw_circle_v(state.moon_position, 5.0, Color::WHITE);
 
-            for i in 0..moon_history.len() - 2 {
-                d.draw_line_ex(
-                    moon_history[i].moon_position,
-                    moon_history[i + 1].moon_position,
-                    3.0,
-                    Color::color_from_hsv(0.0, 0.0, 0.38)
-                        .fade(1.0 - i as f32 / moon_history.len() as f32),
-                );
+            for (i, window) in moon_history.windows(2).enumerate() {
+                if let [previous, current] = window {
+                    d.draw_line_ex(
+                        state.earth_position + previous.moon_position - previous.earth_position,
+                        state.earth_position + current.moon_position - current.earth_position,
+                        3.0,
+                        Color::color_from_hsv(0.0, 0.0, 0.38)
+                            .fade(1.0 - i as f32 / moon_history.len() as f32),
+                    );
+                }
             }
 
-            d.draw_circle_v(
-                state.sun_position,
-                8.0,
-                Color::BLACK,
-            );
+            d.draw_circle_v(state.sun_position, 10.0, Color::BLACK);
 
-            d.draw_circle_v(state.earth_position, 5.0, Color::BLACK);
+            d.draw_circle_v(state.earth_position, 4.5, Color::BLACK);
 
-            d.draw_circle_v(
-                state.moon_position,
-                3.2,
-                Color::BLACK,
-            );
+            d.draw_circle_v(state.moon_position, 2.8, Color::BLACK);
 
-            d.draw_ring(state.sun_position, 48.5, 50.0, 0.0, 360.0, 40, Color::BLACK);
+            for lunar_eclipse in lunar_eclipses.iter() {
+                let point = state.earth_position + lunar_eclipse.moon_position
+                    - lunar_eclipse.earth_position;
+
+                d.draw_circle_v(point, 1.8, Color::WHITE);
+            }
+
+            for solar_eclipse in solar_eclipses {
+                let point = state.earth_position + solar_eclipse.moon_position
+                    - solar_eclipse.earth_position;
+
+                d.draw_circle_v(point, 1.8, Color::WHITE);
+                d.draw_circle_v(point, 1.2, Color::BLACK);
+            }
         }
 
         let mut image = self.render_texture.get_texture_data().unwrap();
         image.flip_vertical();
+
+        {
+            let mut d = d.begin_texture_mode(thread, &mut self.render_texture);
+
+            d.clear_background(Color::BLACK);
+            d.draw_circle_v(Vector2::new(50.0, 50.0), 50.0, Color::WHITE);
+        }
+
+        let mut mask = self.render_texture.get_texture_data().unwrap();
+        mask.flip_vertical();
+
+        image.alpha_mask(&mask);
+
+        {
+            let mut d = d.begin_texture_mode(thread, &mut self.render_texture);
+
+            d.clear_background(Color::BLANK);
+            d.draw_ring(state.sun_position, 48.5, 50.0, 0.0, 360.0, 40, Color::BLACK);
+        }
+
+        let mut ring = self.render_texture.get_texture_data().unwrap();
+        ring.flip_vertical();
+
+        image.draw(
+            &ring,
+            Rectangle::new(0.0, 0.0, ring.width() as f32, ring.height() as f32),
+            Rectangle::new(0.0, 0.0, ring.width() as f32, ring.height() as f32),
+            Color::WHITE,
+        );
 
         image
     }
@@ -720,9 +936,19 @@ static FONT_DATA: &[u8] = include_bytes!(concat!(
     "/../assets/KgHappy-wWZZ.ttf"
 ));
 
+static FONT_SOLID_DATA: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/KgHappy-solid.ttf"
+));
+
 static HOT_IMAGE_DATA: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../assets/heat-wave.png"
+));
+
+static COLD_IMAGE_DATA: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/thermometer-minus.png"
 ));
 
 fn convert_dithered_image(image: &Image) -> Image {

@@ -24,7 +24,7 @@ uuid = "1.2.2"
 futures = "0.3.25"
 packed_struct = "0.10.1"
 vsprintf = "2.0.0"
-chrono = "0.4.23"
+chrono = "0.4.38"
 wake-on-lan = "0.2.0"
 macaddr = "1.0.1"
 

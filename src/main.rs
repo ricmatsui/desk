@@ -187,17 +187,13 @@ impl LibApiClient for ApiClient {
             .parse::<i64>()
             .unwrap();
 
-        let times = json::parse(&result.unwrap().into_string().unwrap()).unwrap();
+        let times = json::parse(&result?.into_string()?)?;
 
         let timestamp = times["timestamps_int"]
             .members()
             .min_by_key(|&t| (t.as_i64().unwrap() - target_timestamp_int).abs())
             .unwrap()
             .to_string();
-
-        //let timestamp = times["timestamps_int"][0].as_i64().unwrap().to_string();
-
-        //let time = chrono::DateTime::parse_from_str(&format!("{timestamp} +0000"), "%Y%m%d%H%M%S %z").unwrap();
 
         log::debug!(target: "rammb", "-> timestamp {}", timestamp);
         let url = format!("https://rammb-slider.cira.colostate.edu/data/imagery/{}/{}/{}/{}---full_disk/geocolor/{}/00/000_000.png", &timestamp[0..4], &timestamp[4..6], &timestamp[6..8], &name, &timestamp);
@@ -207,7 +203,7 @@ impl LibApiClient for ApiClient {
             .request("GET", &url)
             .set("Content-Type", "image/png");
 
-        let response = request.call().unwrap();
+        let response = request.call()?;
 
         let length: usize = response.header("Content-Length").unwrap().parse().unwrap();
         println!("length: {}", length);
@@ -217,8 +213,7 @@ impl LibApiClient for ApiClient {
         response
             .into_reader()
             .take(10_000_000)
-            .read_to_end(&mut bytes)
-            .unwrap();
+            .read_to_end(&mut bytes)?;
 
         assert_eq!(bytes.len(), length);
 

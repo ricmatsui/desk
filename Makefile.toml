@@ -45,6 +45,13 @@ dependencies = [
     "ansible_playbook",
 ]
 
+[tasks.deploy_code]
+workspace = false
+dependencies = [
+    "pi_build",
+    "ansible_playbook_code",
+]
+
 [tasks.patch]
 workspace = false
 command = "cargo"
@@ -140,3 +147,7 @@ script = "rm -rf ansible_collections"
 [tasks.ansible_playbook]
 workspace = false
 script = "poetry run ansible-playbook playbook.yml ${@}"
+
+[tasks.ansible_playbook_code]
+workspace = false
+script = "poetry run ansible-playbook playbook.yml --tags code ${@}"
