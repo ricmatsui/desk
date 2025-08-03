@@ -1,5 +1,7 @@
 set -euxo pipefail
 arduino-cli compile --profile feather --export-binaries --no-color --quiet thinkink
+# sudo mkdir /media/feather
+# LABEL=RPI-RP2	/media/feather	vfat	defaults,nofail,sync,noatime,umask=000	0	2
 ssh pi@zero '
     set -euxo pipefail
     sudo usbreset "Feather RP2040"

@@ -27,7 +27,7 @@ const uint8_t PROGMEM EPD_COLORS[] = {
     EPD_WHITE
 };
 
-Adafruit_IS31FL3741_QT matrix;
+Adafruit_IS31FL3741_QT_buffered matrix;
 TwoWire *i2c = &Wire;
 
 #define SERVO_HOLD true
@@ -75,30 +75,46 @@ int servoYTargetValue = 300;
 int servoYSpeed = 1;
 //int servoYSpeed = 0;
 
-int textX = 0;
-
 unsigned long startTime = 0;
+
+// Using color format 565
+#define GREEN    0x07E0
+#define BLUE     0x001F
+#define WHITE    0xFFFF
+#define BLACK    0x0000
+
+#define GRID_WIDTH 13
+#define GRID_HEIGHT 9
+#define GRID_SIZE (GRID_WIDTH * GRID_HEIGHT)
+
+uint16_t sandGrid[GRID_SIZE];
+bool updated[GRID_SIZE];
+unsigned long lastAdditionTime = 0;
+const unsigned long ADDITION_INTERVAL = 60 * 1000;
+int slowDown = 0;
+bool animating = false;
 
 void setup() {
     display.begin(THINKINK_GRAYSCALE4);
 
     pwm.begin();
     pwm.setOscillatorFrequency(27000000);
-    //pwm.setPWMFreq(1000);
     pwm.setPWMFreq(50);
 
     setLight(currentValue);
 
-    matrix.begin(IS3741_ADDR_DEFAULT, i2c);
     i2c->setClock(800000);
+    matrix.begin(IS3741_ADDR_DEFAULT, i2c);
     matrix.setLEDscaling(0x0F);
     matrix.setGlobalCurrent(0x01);
     matrix.fill(0);
-    matrix.enable(true);
+    matrix.enable(false);
     matrix.setRotation(2);
     matrix.setTextWrap(false);
 
     startTime = micros();
+
+    resetSand();
 
     Serial.begin(115200);
 }
@@ -134,12 +150,15 @@ void setLight(int value) {
     }
 }
 
-#define GREEN    0x07E0
-
-
 char messageBuffer[1024];
 bool messageReady = false;
 int messageBufferIndex = 0;
+
+void resetSand() {
+    for (int i = 0; i < GRID_SIZE; i++) {
+        sandGrid[i] = BLACK;
+    }
+}
 
 void loop() {
     int elapsedTime = micros() - startTime;
@@ -148,18 +167,104 @@ void loop() {
     }
     startTime = micros();
 
-    int scale = 3;
-    matrix.setCursor(textX / scale, 1);
-    matrix.setTextColor(GREEN, 0);
-    matrix.print("Hello World");
-    uint16_t w, h;
-    int16_t ignore;
-    matrix.getTextBounds("Hello World", 0, 0, &ignore, &ignore, &w, &h);
-    if (textX < -w * scale) {
-        textX = 13 * scale;
-    }
+    slowDown++;
 
-    textX--;
+    if (slowDown > 10) {
+        slowDown = 0;
+
+        int emptyCount = 0;
+        for (int i = 0; i < GRID_SIZE; i++) {
+            if (sandGrid[i] == BLACK) {
+                emptyCount++;
+            }
+        }
+        
+        if (emptyCount < 13) {
+            for (int i = 0; i < GRID_SIZE; i++) {
+                sandGrid[i] = BLACK;
+            }
+        }
+
+        for (int i = 0; i < GRID_SIZE; i++) {
+            updated[i] = false;
+        }
+        
+        for (int y = 0; y < GRID_HEIGHT; y++) {
+            for (int x = 0; x < GRID_WIDTH; x++) {
+                int index = y * GRID_WIDTH + x;
+                uint16_t color = sandGrid[index];
+                
+                if (updated[index]) {
+                    continue;
+                }
+                
+                if (color == GREEN) {
+                    if (y < GRID_HEIGHT - 1) {
+                        int belowIndex = (y + 1) * GRID_WIDTH + x;
+                        if (sandGrid[belowIndex] == BLACK) {
+                            sandGrid[index] = BLACK;
+                            sandGrid[belowIndex] = GREEN;
+                            updated[belowIndex] = true;
+                            continue;
+                        }
+                    }
+                    
+                    if (x > 0) {
+                        int leftIndex = y * GRID_WIDTH + (x - 1);
+                        if (sandGrid[leftIndex] == BLACK) {
+                            if (random(0, 10000) <= 1) {
+                                sandGrid[index] = BLACK;
+                                sandGrid[leftIndex] = GREEN;
+                                updated[leftIndex] = true;
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    if (x < GRID_WIDTH - 1) {
+                        int rightIndex = y * GRID_WIDTH + (x + 1);
+                        if (sandGrid[rightIndex] == BLACK) {
+                            if (random(0, 10000) <= 1) {
+                                sandGrid[index] = BLACK;
+                                sandGrid[rightIndex] = GREEN;
+                                updated[rightIndex] = true;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        unsigned long currentTime = millis();
+
+        if (lastAdditionTime == 0 || currentTime - lastAdditionTime >= ADDITION_INTERVAL) {
+            int y = 0;
+            int x = random(0, GRID_WIDTH);
+            
+            for (int attempts = 0; attempts < GRID_WIDTH; attempts++) {
+                int index = y * GRID_WIDTH + (x + attempts) % GRID_WIDTH;
+                if (sandGrid[index] == BLACK) {
+                    sandGrid[index] = GREEN;
+                    break;
+                }
+            }
+            
+            lastAdditionTime = currentTime;
+        }
+        
+        matrix.fill(0);
+
+        for (int i = 0; i < GRID_SIZE; i++) {
+            int x = i % GRID_WIDTH;
+            int y = i / GRID_WIDTH;
+            if (sandGrid[i] == GREEN) {
+                matrix.drawPixel(x, y, GREEN);
+            }
+        }
+        
+        matrix.show();
+    }
 
     if (Serial.availableForWrite() >= 2) {
         Serial.write("t\n");
@@ -203,6 +308,22 @@ void loop() {
                 if (message["kind"] == "servoX") {
                     servoXTargetValue = message["targetValue"];
                     servoXSpeed = message["speed"];
+                }
+
+                if (message["kind"] == "startAnimation") {
+                    resetSand();
+                    lastAdditionTime = 0;
+                    matrix.fill(0);
+                    matrix.show();
+                    matrix.enable(true);
+                    animating = true;
+                }
+
+                if (message["kind"] == "stopAnimation") {
+                    matrix.fill(0);
+                    matrix.show();
+                    matrix.enable(false);
+                    animating = false;
                 }
 
                 if (message["kind"] == "displayData") {
