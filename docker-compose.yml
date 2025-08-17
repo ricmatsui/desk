@@ -3,6 +3,22 @@ services:
   rust_pi:
     build:
       context: .
+    environment:
+      CMAKE_LIBRARY_PATH: /sysroot/usr/lib/arm-linux-gnueabihf/
+      CMAKE_TOOLCHAIN_FILE: /opt/x-tools/armv6-rpi-linux-gnueabihf/armv6-rpi-linux-gnueabihf.toolchain.cmake
+      PKG_CONFIG_PATH: /sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig
+      PKG_CONFIG_SYSROOT_DIR: /sysroot
     volumes:
-      - './pi/registry:/root/.cargo/registry'
+      - './pi/registry:/usr/local/cargo/registry'
+      - './pi/sysroot:/sysroot:ro'
       - '.:/workspace'
+    working_dir: /workspace
+    command:
+      - cargo
+      - build
+      - --target=arm-unknown-linux-gnueabihf
+      - --release
+      - --features
+      - pi
+      - --target-dir
+      - pi/target

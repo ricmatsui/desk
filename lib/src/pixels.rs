@@ -28,6 +28,7 @@ impl Pixels {
         turn_on_shim(&api_client);
 
         api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(LED_SHIM_ADDRESS),
             I2cOperation::WriteByte(0xfd, 0x00),
             I2cOperation::WriteByte(0x00, 0x00),
             I2cOperation::WriteByte(0x01, 0xbf),
@@ -50,7 +51,10 @@ impl Pixels {
         ]);
 
         for i in 0x24..0xB4 {
-            api_client.enqueue_i2c(vec![I2cOperation::WriteByte(i, 0x00)])
+            api_client.enqueue_i2c(vec![
+                I2cOperation::SetAddress(LED_SHIM_ADDRESS),
+                I2cOperation::WriteByte(i, 0x00),
+            ])
         }
 
         turn_off_shim(&api_client);
@@ -173,10 +177,14 @@ fn turn_off_shim(api_client: &std::sync::Arc<dyn super::ApiClient>) {
     api_client.enqueue_i2c(vec![I2cOperation::SetAddress(LED_SHIM_ADDRESS)]);
 
     for i in 0x24..0xB4 {
-        api_client.enqueue_i2c(vec![I2cOperation::WriteByte(i, 0x00)]);
+        api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(LED_SHIM_ADDRESS),
+            I2cOperation::WriteByte(i, 0x00),
+        ]);
     }
 
     api_client.enqueue_i2c(vec![
+        I2cOperation::SetAddress(LED_SHIM_ADDRESS),
         I2cOperation::WriteByte(0xfd, 0x0b),
         I2cOperation::WriteByte(0x0a, 0x00),
     ]);

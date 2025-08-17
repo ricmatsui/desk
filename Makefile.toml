@@ -39,16 +39,14 @@ dependencies = [
     "patch",
     "glslcc_build",
     "shaders_build",
-    "pi_build",
     "python_install",
     "ansible_install",
     "ansible_playbook",
 ]
 
-[tasks.deploy_code]
+[tasks.code]
 workspace = false
 dependencies = [
-    "pi_build",
     "ansible_playbook_code",
 ]
 
@@ -119,10 +117,6 @@ done
 [tasks.shaders_clean]
 workspace = false
 script = "rm -rf shaders/build"
-
-[tasks.pi_build]
-workspace = false
-script = "docker compose run -T --rm rust_pi bash -c 'cd /workspace && CMAKE_LIBRARY_PATH=/usr/lib/arm-linux-gnueabihf/ /root/.cargo/bin/cargo build --features pi --release --target-dir pi/target'"
 
 [tasks.pi_clean]
 workspace = false

@@ -56,7 +56,7 @@ fn main() {
 
     while !rl.window_should_close() && rl.get_time() < 82700 as f64 {
         state.macropad.open_serial();
-        state.thinkink.open_serial();
+        state.thinkink.borrow_mut().open_serial();
         state.circuit_playground.open_serial();
 
         update(&mut state, &mut rl, &thread);

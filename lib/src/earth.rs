@@ -215,7 +215,7 @@ fn load_image(
     apply_image(&mut projected, &image, -180.0, -90.0, -136.9);
 
     let image = api_client
-        .make_rammb_request("goes-16", date)
+        .make_rammb_request("goes-19", date)
         .or_else(|_| { Ok::<Image, Box<dyn std::error::Error>>(Image::gen_image_color(700, 700, Color::WHITE)) })
         .unwrap();
 

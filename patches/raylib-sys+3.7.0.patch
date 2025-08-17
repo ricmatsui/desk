@@ -1,5 +1,5 @@
 diff --git a/build.rs b/build.rs
-index 8237233..1a7b308 100644
+index 8237233..e3ea66c 100644
 --- a/build.rs
 +++ b/build.rs
 @@ -67,6 +67,9 @@ fn build_with_cmake(src_path: &str) {
@@ -33,15 +33,17 @@ index 8237233..1a7b308 100644
      }
  
      println!("cargo:rustc-link-lib=static=raylib");
-@@ -245,7 +255,7 @@ fn platform_from_target(target: &str) -> (Platform, PlatformOS) {
+@@ -245,8 +255,8 @@ fn platform_from_target(target: &str) -> (Platform, PlatformOS) {
          // Cargo web takes care of this but better safe than sorry
          env::set_var("EMMAKEN_CFLAGS", "-s USE_GLFW=3");
          Platform::Web
 -    } else if target.contains("armv7-unknown-linux") {
+-        Platform::RPI
 +    } else if target.contains("armv7-unknown-linux") || target.contains("arm-unknown-linux") {
-         Platform::RPI
++        Platform::Desktop
      } else {
          Platform::Desktop
+     };
 diff --git a/raylib/src/config.h b/raylib/src/config.h
 index 8e200ed..2dbb113 100644
 --- a/raylib/src/config.h

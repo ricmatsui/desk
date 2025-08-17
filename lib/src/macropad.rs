@@ -1,5 +1,6 @@
 use super::input::Input;
 use super::pixels::Pixels;
+use super::thinkink::ThinkInk;
 use super::{ApiClient, Context, TogglError};
 use ::core::str::FromStr;
 use raylib::prelude::*;
@@ -16,6 +17,7 @@ pub struct MacroPad {
     api_client: Arc<dyn ApiClient>,
     input: Rc<RefCell<Input>>,
     pixels: Rc<RefCell<Pixels>>,
+    thinkink: Rc<RefCell<ThinkInk>>,
     last_update: Option<f64>,
     current_start: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -25,6 +27,7 @@ impl MacroPad {
         api_client: Arc<dyn ApiClient>,
         input: Rc<RefCell<Input>>,
         pixels: Rc<RefCell<Pixels>>,
+        thinkink: Rc<RefCell<ThinkInk>>,
     ) -> Self {
         Self {
             serial_port: None,
@@ -33,6 +36,7 @@ impl MacroPad {
             api_client,
             input,
             pixels,
+            thinkink,
             last_update: None,
             current_start: None,
         }
@@ -91,8 +95,20 @@ impl MacroPad {
             match self.get_current_time_entry() {
                 Ok(current_time_entry) => {
                     if current_time_entry.is_null() {
+                        if self.current_start.is_some() {
+                            self.thinkink.borrow_mut().send_message(json::object! {
+                                kind: "stopAnimation",
+                            });
+                        }
+
                         self.current_start = None;
                     } else {
+                        if self.current_start.is_none() {
+                            self.thinkink.borrow_mut().send_message(json::object! {
+                                kind: "startAnimation",
+                            });
+                        }
+
                         self.current_start = Some(chrono::DateTime::from(
                             chrono::DateTime::parse_from_rfc3339(
                                 current_time_entry["start"].as_str().unwrap(),
@@ -365,7 +381,13 @@ impl MacroPad {
 
         match result {
             Err(_) => self.send_error_message(),
-            Ok(_) => self.send_success_message(),
+            Ok(_) => {
+                self.thinkink.borrow_mut().send_message(json::object! {
+                    kind: "startAnimation",
+                });
+
+                self.send_success_message()
+            }
         }
     }
 
@@ -393,7 +415,13 @@ impl MacroPad {
 
         match result {
             Err(_) => self.send_error_message(),
-            Ok(_) => self.send_success_message(),
+            Ok(_) => {
+                self.thinkink.borrow_mut().send_message(json::object! {
+                    kind: "stopAnimation",
+                });
+
+                self.send_success_message()
+            }
         }
     }
 

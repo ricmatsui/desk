@@ -60,10 +60,10 @@ pub struct State {
     pixels: std::rc::Rc<std::cell::RefCell<pixels::Pixels>>,
     pub macropad: macropad::MacroPad,
     pub circuit_playground: circuit_playground::CircuitPlayground,
-    pub thinkink: thinkink::ThinkInk,
+    pub thinkink: std::rc::Rc<std::cell::RefCell<thinkink::ThinkInk>>,
     backlight: backlight::Backlight,
     earth: earth::Earth,
-    matrix: matrix::Matrix,
+    //matrix: matrix::Matrix,
 }
 
 pub struct Context {
@@ -89,6 +89,7 @@ pub fn init(
 ) -> State {
     let input = Rc::new(RefCell::new(Input::new()));
     let pixels = Rc::new(RefCell::new(Pixels::new(api_client.clone())));
+    let thinkink = Rc::new(RefCell::new(ThinkInk::new(api_client.clone(), rl, thread)));
 
     State {
         context: Context {
@@ -97,12 +98,17 @@ pub fn init(
             screen_enabled: false,
         },
         pixels: pixels.clone(),
-        macropad: MacroPad::new(api_client.clone(), input.clone(), pixels.clone()),
+        macropad: MacroPad::new(
+            api_client.clone(),
+            input.clone(),
+            pixels.clone(),
+            thinkink.clone(),
+        ),
         circuit_playground: CircuitPlayground::new(rl, thread, api_client.clone()),
-        thinkink: ThinkInk::new(api_client.clone(), rl, thread),
+        thinkink: thinkink.clone(),
         backlight: Backlight::new(),
         earth: Earth::new(rl, thread, api_client.clone()),
-        matrix: Matrix::new(rl, thread, api_client.clone()),
+        //matrix: Matrix::new(rl, thread, api_client.clone()),
     }
 }
 
@@ -134,11 +140,11 @@ pub fn update(state: &mut State, rl: &mut raylib::RaylibHandle, thread: &raylib:
     drop(input);
 
     state.pixels.borrow_mut().update(&state.context, rl);
-    state.matrix.update(&state.context, rl, thread);
+    //state.matrix.update(&state.context, rl, thread);
 
     state.macropad.update(&state.context, rl);
     state.circuit_playground.update(&state.context, rl);
-    state.thinkink.update(&state.context, rl);
+    state.thinkink.borrow_mut().update(&state.context, rl);
     state.earth.update(&state.context, rl, thread);
 }
 
@@ -153,8 +159,8 @@ pub fn draw(
     state.pixels.borrow().draw(&state.context, d);
     state.macropad.draw(&state.context, d);
     state.circuit_playground.draw(&state.context, d);
-    state.thinkink.draw(&state.context, d, thread);
-    state.matrix.draw(&state.context, d, thread);
+    state.thinkink.borrow_mut().draw(&state.context, d, thread);
+    //state.matrix.draw(&state.context, d, thread);
     state.earth.draw(&state.context, d, thread);
 
     let input = state.context.input.borrow();
@@ -187,5 +193,5 @@ pub fn handle_reload(
     thread: &raylib::RaylibThread,
 ) {
     state.earth.handle_reload(rl, thread);
-    state.thinkink.handle_reload(rl, thread);
+    state.thinkink.borrow_mut().handle_reload(rl, thread);
 }

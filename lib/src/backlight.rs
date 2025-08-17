@@ -1,5 +1,7 @@
 #[cfg(feature = "pi")]
 use rppal::pwm;
+#[cfg(feature = "pi")]
+use std::process::Command;
 
 pub struct Backlight {
     #[cfg(feature = "pi")]
@@ -30,6 +32,10 @@ impl Backlight {
 
     #[cfg(feature = "pi")]
     pub fn set_enabled(&mut self, enabled: bool) {
+        Command::new("xset")
+            .args(["dpms", "force", if enabled { "on" } else { "off" }])
+            .status()
+            .unwrap();
         set_backlight_pwm(&mut self.pwm, if enabled { 0.5 } else { 0.0 });
     }
 

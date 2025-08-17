@@ -1,4 +1,5 @@
 use super::{Context, I2cOperation};
+use rand::Rng;
 use raylib::prelude::*;
 
 const MATRIX_ADDRESS: u16 = 0x30;
@@ -12,11 +13,12 @@ pub struct Matrix {
     enabled: bool,
     api_client: std::sync::Arc<dyn super::ApiClient>,
     driver_enabled: bool,
+    last_addition_time: f64,
 }
 
 impl Matrix {
     pub fn new(
-        _rl: &mut raylib::RaylibHandle,
+        rl: &mut raylib::RaylibHandle,
         _thread: &raylib::RaylibThread,
         api_client: std::sync::Arc<dyn super::ApiClient>,
     ) -> Self {
@@ -57,20 +59,111 @@ impl Matrix {
         ]);
 
         Self {
-            image: Image::gen_image_checked(13, 9, 1, 1, Color::BLACK, Color::WHITE),
+            image: Image::gen_image_color(13, 9, Color::BLACK),
             scroll_position: 0.0,
             updated: false,
             enabled: true,
             driver_enabled: false,
             api_client,
+            last_addition_time: rl.get_time(),
         }
     }
 
-    pub fn update(&mut self, context: &Context, rl: &mut RaylibHandle, _thread: &RaylibThread) {
+    pub fn update(&mut self, _context: &Context, rl: &mut RaylibHandle, _thread: &RaylibThread) {
         if self.enabled {
-            self.image.draw_rectangle(0, 0, 13, 9, Color::BLACK);
-            self.image.draw_pixel(6, 0, Color::WHITE);
-            self.image.draw_pixel(6, 2, Color::WHITE);
+            let mut data = self.image.get_image_data();
+            let mut updated = [false; 13 * 9];
+
+            let mut empty_count = 0;
+            for i in 0..13 * 9 {
+                if data[i] == Color::BLACK {
+                    empty_count += 1;
+                }
+            }
+
+            if empty_count < 13 {
+                for i in 0..13 * 9 {
+                    data[i] = Color::BLACK;
+                }
+            }
+
+            let current_time = rl.get_time();
+
+            let mut rng = rand::rng();
+
+            for y in 0..9 {
+                for x in 0..13 {
+                    let index = (y * 13 + x) as usize;
+                    let color = data[index];
+
+                    if updated[index] {
+                        continue;
+                    }
+
+                    if color == Color::GREEN {
+                        if y < 8 {
+                            let below_index = ((y + 1) * 13 + x) as usize;
+                            if data[below_index] == Color::BLACK {
+                                data[index] = Color::BLACK;
+                                data[below_index] = Color::GREEN;
+                                updated[below_index] = true;
+                                continue;
+                            }
+                        }
+
+                        if x > 0 {
+                            let left_index = (y * 13 + (x - 1)) as usize;
+                            if data[left_index] == Color::BLACK {
+                                if rng.random_range(0..10000) <= 1 {
+                                    let left_index = (y * 13 + (x - 1)) as usize;
+                                    data[index] = Color::BLACK;
+                                    data[left_index] = Color::GREEN;
+                                    updated[left_index] = true;
+                                    continue;
+                                }
+                            }
+                        }
+
+                        if x < 12 {
+                            let right_index = (y * 13 + (x + 1)) as usize;
+                            if data[right_index] == Color::BLACK {
+                                if rng.random_range(0..10000) <= 1 {
+                                    let right_index = (y * 13 + (x + 1)) as usize;
+                                    data[index] = Color::BLACK;
+                                    data[right_index] = Color::GREEN;
+                                    updated[right_index] = true;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if current_time - self.last_addition_time >= 3.0 {
+                let y = 0;
+                let mut x = rng.random_range(0..13);
+
+                loop {
+                    let index = (y * 13 + x) as usize;
+
+                    if data[index] == Color::BLACK {
+                        data[index] = Color::GREEN;
+                        break;
+                    }
+
+                    x = (x + 1) % 13;
+                }
+
+                self.last_addition_time = current_time;
+            }
+
+            for i in 0..13 * 9 {
+                let x = i % 13;
+                let y = i / 13;
+                let color = data[i];
+                self.image.draw_pixel(x as i32, y as i32, color);
+            }
 
             self.updated = true;
         }
@@ -170,6 +263,7 @@ impl Matrix {
         ]);
         data[180] = 0x00;
         self.api_client.enqueue_i2c(vec![
+            I2cOperation::SetAddress(MATRIX_ADDRESS),
             I2cOperation::WriteByte(0xfe, 0xc5),
             I2cOperation::WriteByte(0xfd, 0x01),
             I2cOperation::Write(data[180..].to_vec()),

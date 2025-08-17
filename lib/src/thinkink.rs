@@ -184,7 +184,7 @@ impl ThinkInk {
         }
     }
 
-    fn send_message(&mut self, message: json::JsonValue) {
+    pub fn send_message(&mut self, message: json::JsonValue) {
         log::debug!("-> {}", message.dump());
         self.output_buffer
             .extend_from_slice((message.dump() + "\n").as_bytes());

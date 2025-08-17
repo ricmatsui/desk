@@ -31,18 +31,6 @@ macaddr = "1.0.1"
 [package.metadata.patch]
 crates = ["raylib", "raylib-sys"]
 
-#[package.metadata.patch.raylib]
-#version = "3.7"
-#patches = [
-    #"patches/raylib.patch"
-#]
-
-#[package.metadata.patch.raylib-sys]
-#version = "3.7"
-#patches = [
-    #"patches/raylib-sys.patch"
-#]
-
 [patch.crates-io]
 raylib = { path = './target/patch/raylib-3.7.0' }
 raylib-sys = { path = './target/patch/raylib-sys-3.7.0' }
