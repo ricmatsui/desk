@@ -1,0 +1,12 @@
+[package]
+name = "desk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+raylib = { version = "5.5.1", features = [] }
+kameo = { version = "0.17.2", features = ["remote"] }
+serde = "1.0.219"
+tokio = "1.47.1"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
