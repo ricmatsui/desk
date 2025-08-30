@@ -188,6 +188,12 @@
   tags: build
   tasks:
 
+    - name: stop service
+      ansible.builtin.systemd:
+        name: deskpi.service
+        state: stopped
+      ignore_errors: true
+
     - name: create sysroot directory
       ansible.builtin.file:
         path: pi/sysroot

@@ -92,7 +92,7 @@ impl Earth {
         while let Ok(image) = self.image_load_rx.try_recv() {
             self.images.push_back(image);
 
-            if self.images.len() > 144 {
+            if self.images.len() > 50 {
                 self.images.pop_front();
             }
         }
