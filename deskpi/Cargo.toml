@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["lib"]
+
+[package]
+name = "deskpi"
+build = "build.rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+raylib = { version = "3.7" }
+hot-lib-reloader = { version = "^0.6", features = ["verbose"], optional = true }
+lib = { path = "lib" }
+tokio = { version = "1.20.1", features = ["full"] }
+simple_logger = "^4.0.0"
+log = "0.4.17"
+rppal = { version = "0.14.1", optional = true }
+json = "0.12.4"
+ureq = "=2.5.0"
+base64 = "0.20.0"
+btleplug = "0.10.4"
+uuid = "1.2.2"
+futures = "0.3.25"
+packed_struct = "0.10.1"
+vsprintf = "2.0.0"
+chrono = "0.4.38"
+wake-on-lan = "0.2.0"
+macaddr = "1.0.1"
+
+[package.metadata.patch]
+crates = ["raylib", "raylib-sys"]
+
+[patch.crates-io]
+raylib = { path = './target/patch/raylib-3.7.0' }
+raylib-sys = { path = './target/patch/raylib-sys-3.7.0' }
+
+[features]
+default = []
+pi = ["lib/pi", "dep:rppal"]
+reloader = ["lib/reloader", "raylib/nobuild", "dep:hot-lib-reloader"]

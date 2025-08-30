@@ -1,0 +1,75 @@
+diff --git a/build.rs b/build.rs
+index 8237233..e3ea66c 100644
+--- a/build.rs
++++ b/build.rs
+@@ -67,6 +67,9 @@ fn build_with_cmake(src_path: &str) {
+         Platform::Web => conf.define("PLATFORM", "Web"),
+         Platform::RPI => conf.define("PLATFORM", "Raspberry Pi"),
+     };
++    if platform_os == PlatformOS::Linux && platform != Platform::RPI {
++        conf.define("GRAPHICS", "GRAPHICS_API_OPENGL_21");
++    }
+ 
+     let dst = conf.build();
+     let dst_lib = join_cmake_lib_directory(dst);
+@@ -174,6 +177,7 @@ fn link(platform: Platform, platform_os: PlatformOS) {
+         }
+         PlatformOS::Linux => {
+             println!("cargo:rustc-link-search=/usr/local/lib");
++            println!("cargo:rustc-link-search=/usr/lib/arm-linux-gnueabihf");
+             println!("cargo:rustc-link-lib=X11");
+         }
+         PlatformOS::OSX => {
+@@ -188,6 +192,12 @@ fn link(platform: Platform, platform_os: PlatformOS) {
+     }
+     if platform == Platform::Web {
+         println!("cargo:rustc-link-lib=glfw");
++    } else if platform == Platform::RPI {
++        println!("cargo:rustc-link-search=/opt/vc/lib");
++        println!("cargo:rustc-link-lib=bcm_host");
++        println!("cargo:rustc-link-lib=brcmEGL");
++        println!("cargo:rustc-link-lib=brcmGLESv2");
++        println!("cargo:rustc-link-lib=vcos");
+     }
+ 
+     println!("cargo:rustc-link-lib=static=raylib");
+@@ -245,8 +255,8 @@ fn platform_from_target(target: &str) -> (Platform, PlatformOS) {
+         // Cargo web takes care of this but better safe than sorry
+         env::set_var("EMMAKEN_CFLAGS", "-s USE_GLFW=3");
+         Platform::Web
+-    } else if target.contains("armv7-unknown-linux") {
+-        Platform::RPI
++    } else if target.contains("armv7-unknown-linux") || target.contains("arm-unknown-linux") {
++        Platform::Desktop
+     } else {
+         Platform::Desktop
+     };
+diff --git a/raylib/src/config.h b/raylib/src/config.h
+index 8e200ed..2dbb113 100644
+--- a/raylib/src/config.h
++++ b/raylib/src/config.h
+@@ -124,7 +124,7 @@
+ #define SUPPORT_FILEFORMAT_PNG      1
+ //#define SUPPORT_FILEFORMAT_BMP      1
+ //#define SUPPORT_FILEFORMAT_TGA      1
+-//#define SUPPORT_FILEFORMAT_JPG      1
++#define SUPPORT_FILEFORMAT_JPG      1
+ #define SUPPORT_FILEFORMAT_GIF      1
+ //#define SUPPORT_FILEFORMAT_PSD      1
+ #define SUPPORT_FILEFORMAT_DDS      1
+diff --git a/raylib/src/core.c b/raylib/src/core.c
+index 7dfbb92..5702f73 100644
+--- a/raylib/src/core.c
++++ b/raylib/src/core.c
+@@ -4354,7 +4354,11 @@ static bool InitGraphicsDevice(int width, int height)
+     // Load OpenGL extensions
+     // NOTE: GLFW loader function is required by GLAD but only used for OpenGL 2.1 and 3.3,
+     // OpenGL ES 2.0 extensions (and entry points) are loaded manually using eglGetProcAddress()
++#if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
+     rlLoadExtensions(glfwGetProcAddress);
++#else
++    rlLoadExtensions(eglGetProcAddress);
++#endif
+ 
+     // Initialize OpenGL context (states and resources)
+     // NOTE: CORE.Window.screen.width and CORE.Window.screen.height not used, just stored as globals in rlgl
