@@ -1,2 +1,2 @@
 all:
-	cp code.py /Volumes/CIRCUITPY/code.py
+	scp code.py zero:/media/macropad/code.py
