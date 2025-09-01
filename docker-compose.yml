@@ -1,16 +1,17 @@
 version: '3'
 services:
-  rust_pi:
+  cross_hub_armv6:
     build:
       context: .
+      dockerfile: Dockerfile.armv6
     environment:
       CMAKE_LIBRARY_PATH: /sysroot/usr/lib/arm-linux-gnueabihf/
       CMAKE_TOOLCHAIN_FILE: /opt/x-tools/armv6-rpi-linux-gnueabihf/armv6-rpi-linux-gnueabihf.toolchain.cmake
       PKG_CONFIG_PATH: /sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig
       PKG_CONFIG_SYSROOT_DIR: /sysroot
     volumes:
-      - './pi/registry:/usr/local/cargo/registry'
-      - './pi/sysroot:/sysroot:ro'
+      - './cross/hub/registry:/usr/local/cargo/registry'
+      - './cross/hub/sysroot:/sysroot:ro'
       - '.:/workspace'
     working_dir: /workspace
     command:
@@ -18,5 +19,7 @@ services:
       - build
       - --target=arm-unknown-linux-gnueabihf
       - --release
+      - --features
+      - pi
       - --target-dir
-      - pi/target
+      - cross/hub/target

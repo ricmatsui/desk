@@ -202,10 +202,12 @@ void loop() {
                     if (y < GRID_HEIGHT - 1) {
                         int belowIndex = (y + 1) * GRID_WIDTH + x;
                         if (sandGrid[belowIndex] == BLACK) {
-                            sandGrid[index] = BLACK;
-                            sandGrid[belowIndex] = GREEN;
-                            updated[belowIndex] = true;
-                            continue;
+                            if (random(0, 10000) <= 9000) {
+                                sandGrid[index] = BLACK;
+                                sandGrid[belowIndex] = GREEN;
+                                updated[belowIndex] = true;
+                                continue;
+                            }
                         }
                     }
                     
@@ -326,6 +328,47 @@ void loop() {
                     animating = false;
                 }
 
+                if (message["kind"] == "adjustAnimationTime") {
+                    int minutes = message["minutes"];
+
+                    bool remove = minutes < 0;
+                    int count = abs(minutes);
+
+                    if (count > 0) {
+                        for (int y = 0; y < GRID_HEIGHT; y++) {
+                            int indexes[GRID_WIDTH];
+                            initArray(indexes, GRID_WIDTH);
+                            shuffle(indexes, GRID_WIDTH);
+                            
+                            for (int i = 0; i < GRID_WIDTH; i++) {
+                                int index = y * GRID_WIDTH + indexes[i];
+
+                                if (remove) {
+                                    if (sandGrid[index] == GREEN) {
+                                        sandGrid[index] = BLACK;
+
+                                        count--;
+                                    }
+                                } else {
+                                    if (sandGrid[index] == BLACK) {
+                                        sandGrid[index] = GREEN;
+
+                                        count--;
+                                    }
+                                }
+
+                                if (count == 0) {
+                                    break;
+                                }
+                            }
+
+                            if (count == 0) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 if (message["kind"] == "displayData") {
                     int offset = message["offset"];
                     
@@ -389,5 +432,20 @@ void loop() {
         if (!SERVO_HOLD) {
             pwm.setPWM(SERVO_Y_PIN, 0, servoYCurrentValue);
         }
+    }
+}
+
+void initArray(int *array, int size) {
+    for (int i = 0; i < size; i++) {
+        array[i] = i;
+    }
+}
+
+void shuffle(int *array, int size) {
+    for (int i = size - 1; i > 0; i--) {
+        int j = random(0, i + 1);
+        int temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
     }
 }

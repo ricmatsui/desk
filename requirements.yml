@@ -1,0 +1,7 @@
+---
+collections:
+  - name: https://github.com/ansible-collections/community.sops
+    type: git
+
+  - name: community.docker
+    version: 4.6.0

@@ -1,0 +1,17 @@
+---
+
+- name: setup
+  gather_facts: false
+  hosts: localhost
+  tags: setup
+  tasks:
+    - name: cargo patch
+      ansible.builtin.command:
+        cmd: cargo patch-crate
+
+- name: deploy
+  gather_facts: false
+  hosts: hub
+  roles:
+    - role: hub
+      tags: hub

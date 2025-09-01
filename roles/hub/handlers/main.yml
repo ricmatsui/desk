@@ -1,0 +1,12 @@
+---
+
+- name: reboot
+  ansible.builtin.reboot:
+  listen: hub_reboot
+
+- name: restart service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: desk.service
+    state: restarted
+  listen: hub_restart

@@ -4,9 +4,32 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-raylib = { version = "5.5.1", features = [] }
+async-trait = "0.1"
+base64 = "0.22.0"
+chrono = "0.4.38"
+futures = "0.3.31"
 kameo = { version = "0.17.2", features = ["remote"] }
+kameo_actors = "0.2.0"
+raylib = { version = "3.7" }
+reqwest = { version = "0.12", features = ["json", "native-tls-vendored"] }  
+rppal = { version = "0.14.1", optional = true }
 serde = "1.0.219"
-tokio = "1.47.1"
+serde_json = "1.0.143"
+splines = "4.3.1"
+tokio = { version = "1.47.1", features = ["fs"] }
+tokio-serial = "5.4.5"
+tokio-util = { version = "0.7.16", features = ["codec"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+vsprintf = "2.0.0"
+
+[package.metadata.patch]
+crates = ["raylib", "raylib-sys"]
+
+[patch.crates-io]
+raylib = { path = './target/patch/raylib-3.7.0' }
+raylib-sys = { path = './target/patch/raylib-sys-3.7.0' }
+
+[features]
+default = []
+pi = ["dep:rppal"]
