@@ -5,76 +5,32 @@ use kameo::prelude::*;
 use kameo_actors::broker;
 
 #[cfg(feature = "pi")]
-use futures::SinkExt;
-#[cfg(feature = "pi")]
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::StreamExt;
 #[cfg(feature = "pi")]
 use tokio_serial::SerialPortBuilderExt;
 #[cfg(feature = "pi")]
-use tokio_serial::SerialStream;
-#[cfg(feature = "pi")]
 use tokio_util::codec::{Framed, LinesCodec};
 
-#[async_trait::async_trait]
-pub trait Transmitter: Send {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-}
-
-#[cfg(feature = "pi")]
-pub struct SerialTransmitter {
-    inner: SplitSink<Framed<SerialStream, LinesCodec>, String>,
-}
-
-#[cfg(feature = "pi")]
-#[async_trait::async_trait]
-impl Transmitter for SerialTransmitter {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.inner
-            .send(message)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-    }
-}
-
-pub struct DummyTransmitter;
-
-#[async_trait::async_trait]
-impl Transmitter for DummyTransmitter {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        tracing::info!("-> dummy send: {}", message);
-        Ok(())
-    }
-}
-
 pub struct ThinkInk {
-    transmit: Box<dyn Transmitter>,
-    raylib_actor_ref: ActorRef<crate::raylib_actor::Raylib>,
+    transmit: Box<dyn crate::serial_sink::Sink>,
+    raylib_manager_ref: ActorRef<crate::raylib_manager::RaylibManager>,
     last_date_string: Option<String>,
 }
 
 impl Actor for ThinkInk {
     type Args = (
         ActorRef<broker::Broker<crate::BrokerMessage>>,
-        ActorRef<crate::raylib_actor::Raylib>,
+        ActorRef<crate::raylib_manager::RaylibManager>,
     );
     type Error = Infallible;
 
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let broker_ref = state.0;
-        let raylib_actor_ref = state.1;
+        let raylib_manager_ref = state.1;
 
         broker_ref
             .tell(broker::Subscribe {
-                topic: "*".parse().unwrap(),
+                topic: "toggl".parse().unwrap(),
                 recipient: actor_ref.clone().recipient(),
             })
             .await
@@ -84,6 +40,22 @@ impl Actor for ThinkInk {
 
         actor_ref.tell(UpdateImage).try_send().unwrap();
 
+        {
+            let actor_ref = actor_ref.clone();
+
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+
+                loop {
+                    interval.tick().await;
+
+                    if actor_ref.tell(UpdateImage).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
         let last_date_string = match tokio::fs::read_to_string("date.txt").await {
             Ok(data) => Some(data),
             Err(_) => None,
@@ -91,6 +63,9 @@ impl Actor for ThinkInk {
 
         #[cfg(feature = "pi")]
         {
+            // Wait if new ThinkInk code is being deployed
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+
             let serial_port =
                 tokio_serial::new(std::env::var("THINKINK_SERIAL_PATH").unwrap(), 115200)
                     .open_native_async()
@@ -102,11 +77,11 @@ impl Actor for ThinkInk {
 
             actor_ref.attach_stream(receive, (), ());
 
-            let serial_transmitter = SerialTransmitter { inner: transmit };
+            let serial_sink = crate::serial_sink::SerialSink::new(transmit);
 
             Ok(Self {
-                transmit: Box::new(serial_transmitter),
-                raylib_actor_ref,
+                transmit: Box::new(serial_sink),
+                raylib_manager_ref,
                 last_date_string,
             })
         }
@@ -114,8 +89,8 @@ impl Actor for ThinkInk {
         #[cfg(not(feature = "pi"))]
         {
             Ok(Self {
-                transmit: Box::new(DummyTransmitter),
-                raylib_actor_ref,
+                transmit: Box::new(crate::serial_sink::DummySink),
+                raylib_manager_ref,
                 last_date_string,
             })
         }
@@ -183,6 +158,7 @@ impl Message<crate::BrokerMessage> for ThinkInk {
                 }))
                 .await;
             }
+            _ => {}
         }
     }
 }
@@ -223,16 +199,15 @@ impl Message<UpdateImage> for ThinkInk {
 
         let current_date_string = format!("{}", now.format("%m-%d"));
 
-        if let Some(last_date_string) = &self.last_date_string {
-            if *last_date_string == current_date_string {
-                tracing::info!("skipping image update");
-                return;
-            }
+        if let Some(last_date_string) = self.last_date_string.as_ref()
+            && *last_date_string == current_date_string
+        {
+            return;
         }
 
         let data = self
-            .raylib_actor_ref
-            .ask(crate::raylib_actor::RenderThinkInkImage)
+            .raylib_manager_ref
+            .ask(crate::raylib_manager::RenderThinkInkImage)
             .await
             .unwrap();
 

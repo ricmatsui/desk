@@ -18,25 +18,33 @@ impl Actor for Light {
 
         let light_spline = splines::Spline::from_vec(vec![
             splines::Key::new(0.0, 0.0, splines::Interpolation::Step(1.0)),
-            splines::Key::new(to_seconds(6, 0, 0), 0.0, splines::Interpolation::Cosine),
-            splines::Key::new(to_seconds(6, 1, 0), 4096.0, splines::Interpolation::Cosine),
-            splines::Key::new(to_seconds(7, 0, 0), 4096.0, splines::Interpolation::Cosine),
-            splines::Key::new(to_seconds(7, 1, 0), 8190.0, splines::Interpolation::Cosine),
-            splines::Key::new(to_seconds(21, 0, 0), 8190.0, splines::Interpolation::Cosine),
-            splines::Key::new(to_seconds(21, 1, 0), 4096.0, splines::Interpolation::Cosine),
+            splines::Key::new(
+                to_seconds(6, 0, 0),
+                4096.0,
+                splines::Interpolation::Step(1.0),
+            ),
+            splines::Key::new(
+                to_seconds(7, 0, 0),
+                8190.0,
+                splines::Interpolation::Step(1.0),
+            ),
+            splines::Key::new(
+                to_seconds(21, 0, 0),
+                4096.0,
+                splines::Interpolation::Step(1.0),
+            ),
             splines::Key::new(
                 to_seconds(23, 20, 0),
-                4096.0,
-                splines::Interpolation::Cosine,
+                0.0,
+                splines::Interpolation::Step(1.0),
             ),
-            splines::Key::new(to_seconds(23, 21, 0), 0.0, splines::Interpolation::Cosine),
             splines::Key::new(to_seconds(24, 0, 0), 0.0, splines::Interpolation::default()),
         ]);
 
         actor_ref.tell(Tick).try_send().unwrap();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
 
             loop {
                 interval.tick().await;
@@ -72,7 +80,7 @@ impl Message<Tick> for Light {
         self.thinkink_ref
             .tell(crate::thinkink::UpdateLight {
                 target_value,
-                speed: 300,
+                speed: 1,
             })
             .await
             .unwrap();

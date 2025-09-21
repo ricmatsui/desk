@@ -1,4 +1,11 @@
 /ansible_collections
 /cross
+/external/glslcc/build
 /node_modules
+/shaders/build
 /target
+/thinkink/build
+/date.txt
+/game_of_life.png
+/game_of_life_initial.png
+/unicorn/typings

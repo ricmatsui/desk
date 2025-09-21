@@ -1,61 +1,19 @@
 use kameo::message::StreamMessage;
 use kameo::prelude::*;
+use kameo_actors::broker;
 
 #[cfg(feature = "pi")]
-use futures::SinkExt;
-#[cfg(feature = "pi")]
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::StreamExt;
 #[cfg(feature = "pi")]
 use tokio_serial::SerialPortBuilderExt;
-#[cfg(feature = "pi")]
-use tokio_serial::SerialStream;
 #[cfg(feature = "pi")]
 use tokio_util::codec::{Framed, LinesCodec};
 
 use crate::toggl;
 
-#[async_trait::async_trait]
-pub trait Transmitter: Send {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-}
-
-#[cfg(feature = "pi")]
-pub struct SerialTransmitter {
-    inner: SplitSink<Framed<SerialStream, LinesCodec>, String>,
-}
-
-#[cfg(feature = "pi")]
-#[async_trait::async_trait]
-impl Transmitter for SerialTransmitter {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.inner
-            .send(message)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-    }
-}
-
-pub struct DummyTransmitter;
-
-#[async_trait::async_trait]
-impl Transmitter for DummyTransmitter {
-    async fn send(
-        &mut self,
-        message: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        tracing::info!("-> dummy send: {}", message);
-        Ok(())
-    }
-}
-
 pub struct Macropad {
-    transmit: Box<dyn Transmitter>,
+    transmit: Box<dyn crate::serial_sink::Sink>,
+    broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
     toggl_ref: ActorRef<toggl::Toggl>,
 }
 
@@ -63,13 +21,16 @@ pub struct Macropad {
 pub struct MacropadError;
 
 impl Actor for Macropad {
-    type Args = (ActorRef<toggl::Toggl>,);
+    type Args = (ActorRef<broker::Broker<crate::BrokerMessage>>,);
     type Error = MacropadError;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        let (broker_ref,) = state;
+
+        let toggl_ref = crate::toggl::Toggl::spawn_link(&actor_ref, (broker_ref.clone(),)).await;
+
         #[cfg(feature = "pi")]
         {
-            tracing::warn!("start open serial");
             let serial_port =
                 tokio_serial::new(std::env::var("MACROPAD_SERIAL_PATH").unwrap(), 19200)
                     .open_native_async()
@@ -79,21 +40,23 @@ impl Actor for Macropad {
             let device = Framed::new(serial_port, LinesCodec::new());
             let (transmit, receive) = device.split::<String>();
 
-            _actor_ref.attach_stream(receive, (), ());
+            actor_ref.attach_stream(receive, (), ());
 
-            let serial_transmitter = SerialTransmitter { inner: transmit };
+            let serial_sink = crate::serial_sink::SerialSink::new(transmit);
 
             Ok(Self {
-                transmit: Box::new(serial_transmitter),
-                toggl_ref: state.0,
+                transmit: Box::new(serial_sink),
+                broker_ref,
+                toggl_ref,
             })
         }
 
         #[cfg(not(feature = "pi"))]
         {
             Ok(Self {
-                transmit: Box::new(DummyTransmitter),
-                toggl_ref: state.0,
+                transmit: Box::new(crate::serial_sink::DummySink),
+                broker_ref,
+                toggl_ref,
             })
         }
     }
@@ -115,9 +78,21 @@ impl Message<StreamMessage<Result<String, tokio_util::codec::LinesCodecError>, (
                     return;
                 }
 
-                let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+                if line.starts_with("p") {
+                    return;
+                }
 
-                tracing::info!("<- message {:?}", message);
+                if line.starts_with("x") {
+                    return;
+                }
+
+                if line.starts_with("y") {
+                    return;
+                }
+
+                tracing::info!("<- {}", line);
+
+                let message: serde_json::Value = serde_json::from_str(&line).unwrap();
                 self.process_command(message).await;
             }
             StreamMessage::Next(Err(e)) => {
@@ -143,6 +118,9 @@ impl Macropad {
             "stopTimeEntry" => self.stop_time_entry().await,
             "continueTimeEntry" => self.continue_time_entry().await,
             "adjustTime" => self.adjust_time(message).await,
+            "readInbox" => self.read_inbox().await,
+            "clearInbox" => self.clear_inbox().await,
+            "startClock" => self.start_clock().await,
             _ => panic!("Unknown message kind: {}", kind),
         };
 
@@ -150,6 +128,42 @@ impl Macropad {
             Ok(_) => self.send_success_message().await,
             Err(_) => self.send_error_message().await,
         }
+    }
+
+    async fn read_inbox(&mut self) -> Result<(), ()> {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "message".parse().unwrap(),
+                message: crate::BrokerMessage::ReadInbox,
+            })
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    async fn clear_inbox(&mut self) -> Result<(), ()> {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "message".parse().unwrap(),
+                message: crate::BrokerMessage::ClearInbox,
+            })
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    async fn start_clock(&mut self) -> Result<(), ()> {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "clock".parse().unwrap(),
+                message: crate::BrokerMessage::StartClock,
+            })
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
     }
 
     async fn send_time_entries(&mut self) -> Result<(), ()> {
@@ -226,7 +240,7 @@ impl Macropad {
     }
 
     async fn send_message(&mut self, message: serde_json::Value) {
-        tracing::info!("-> message {:?}", message);
+        tracing::info!("-> {:?}", message);
         self.transmit.send(message.to_string()).await.unwrap();
     }
 }

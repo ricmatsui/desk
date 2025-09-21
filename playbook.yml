@@ -9,9 +9,63 @@
       ansible.builtin.command:
         cmd: cargo patch-crate
 
+    - name: configure glslcc
+      ansible.builtin.shell:
+        cmd: cmake -S external/glslcc/src -B external/glslcc/build
+      tags: glslcc
+
+    - name: make glslcc
+      ansible.builtin.shell:
+        cmd: make
+        chdir: external/glslcc/build
+      tags: glslcc
+
+    - name: find shader files
+      ansible.builtin.find:
+        paths: shaders/src
+        patterns: "*.frag,*.vert"
+      register: shader_files
+      tags:
+        - glslcc
+        - shaders
+
+    - name: create shader build directories
+      ansible.builtin.file:
+        path: "shaders/build/{{ item }}"
+        state: directory
+      loop:
+        - '120'
+        - '330'
+      tags:
+        - glslcc
+        - shaders
+
+    - name: compile shaders
+      ansible.builtin.shell:
+        cmd: >
+          external/glslcc/build/src/glslcc
+          -O
+          -l glsl
+          -p {{ item.0 }}
+          -i "{{ item.1 }}"
+          -o "shaders/build/{{ item.0 }}/{{ item.1|basename }}"
+      loop: "{{ ['120', '330']|product(shader_files.files|map(attribute='path')) }}"
+      tags:
+        - glslcc
+        - shaders
+
 - name: deploy
   gather_facts: false
   hosts: hub
   roles:
     - role: hub
       tags: hub
+
+    - role: macropad
+      tags: macropad
+
+    - role: thinkink
+      tags: thinkink
+
+    - role: unicorn
+      tags: unicorn

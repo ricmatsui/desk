@@ -1,0 +1,84 @@
+---
+
+- name: compile
+  ansible.builtin.command:
+    cmd: >
+      arduino-cli compile
+      --profile feather
+      --export-binaries
+      --no-color
+      --quiet
+      thinkink
+    chdir: "{{ playbook_dir }}"
+  delegate_to: localhost
+  tags:
+    - thinkink_code
+
+- name: create mount point
+  ansible.builtin.file:
+    path: /media/feather
+    state: directory
+    owner: root
+    group: root
+
+- name: check for serial
+  ansible.builtin.stat:
+    path: "{{ thinkink_serial_path}}"
+  register: initial_serial_stat
+  tags:
+    - thinkink_code
+
+- name: reset
+  ansible.builtin.shell:
+    cmd: usbreset "Feather RP2040"
+  when: initial_serial_stat.stat.exists
+  tags:
+    - thinkink_code
+
+- name: wait for serial
+  ansible.builtin.stat:
+    path: "{{ thinkink_serial_path}}"
+  register: serial_stat
+  when: initial_serial_stat.stat.exists
+  until: serial_stat.stat.exists
+  retries: 30
+  delay: 1
+  tags:
+    - thinkink_code
+
+- name: enter bootloader
+  ansible.builtin.shell:
+    cmd: stty -F "{{ thinkink_serial_path }}" 1200
+  when: initial_serial_stat.stat.exists
+  tags:
+    - thinkink_code
+
+- name: wait for block device
+  ansible.builtin.shell:
+    cmd: lsblk -o LABEL | grep -q "RPI-RP2"
+  register: block_device_check
+  until: block_device_check.rc == 0
+  retries: 30
+  delay: 1
+  tags:
+    - thinkink_code
+
+- name: mount
+  ansible.posix.mount:
+    path: /media/feather
+    src: LABEL=RPI-RP2
+    fstype: vfat
+    opts: defaults,nofail,sync,noatime,umask=000
+    state: mounted
+  retries: 30
+  delay: 1
+  tags:
+    - thinkink_code
+
+- name: copy firmware
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/thinkink/build/rp2040.rp2040.adafruit_feather/thinkink.ino.uf2"
+    dest: /media/feather/
+    remote_src: false
+  tags:
+    - thinkink_code

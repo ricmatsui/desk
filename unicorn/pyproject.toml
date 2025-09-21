@@ -1,0 +1,39 @@
+[project]
+name = "unicorn"
+version = "0.1.0"
+dependencies = ["microdot (>=2.3.3,<3.0.0)", "phew (>=1.2.0,<2.0.0)"]
+
+# poetry run pip install pimoroni-pico-stubs --target typings
+[project.optional-dependencies]
+stubs = [
+  "micropython-rp2-pico-stubs",
+  "pimoroni-pico-stubs",
+]
+
+[tool.pyright]
+include = ["src"]
+ignore = ["**/typings"]
+exclude = [".*", "__*", "**/typings"]
+
+typeCheckingMode = "basic"
+stubPath = "typings"
+typeshedPath = "typings"
+pythonPlatform = "Linux"
+pythonVersion = "3.8"
+
+reportMissingModuleSource = "none"
+reportUnnecessaryTypeIgnoreComment = "information"
+
+[tool.poetry]
+name = "unicorn"
+version = "0.1.0"
+description = ""
+authors = ["Ricardo Matsui"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

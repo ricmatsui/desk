@@ -1,0 +1,24 @@
+---
+
+- name: create mount point
+  ansible.builtin.file:
+    path: /media/macropad
+    state: directory
+    owner: root
+    group: root
+
+- name: mount
+  ansible.posix.mount:
+    path: /media/macropad
+    src: LABEL=MACROPAD
+    fstype: vfat
+    opts: defaults,nofail,sync,noatime,umask=000
+    state: mounted
+
+- name: deploy
+  ansible.builtin.copy:
+    remote_src: false
+    src: "{{ playbook_dir }}/macropad/code.py"
+    dest: /media/macropad
+  tags:
+    - macropad_code

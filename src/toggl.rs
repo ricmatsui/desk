@@ -9,6 +9,7 @@ pub struct Toggl {
     workspace_id: i64,
     project_id: i64,
     broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
+    current_time_entry: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -18,7 +19,7 @@ impl Actor for Toggl {
     type Args = (ActorRef<broker::Broker<crate::BrokerMessage>>,);
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let mut headers = reqwest::header::HeaderMap::new();
 
         let mut authorization = reqwest::header::HeaderValue::from_str(&format!(
@@ -36,6 +37,20 @@ impl Actor for Toggl {
             .build()
             .unwrap();
 
+        actor_ref.tell(GetCurrentTimeEntry).try_send().unwrap();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+
+            loop {
+                interval.tick().await;
+
+                if actor_ref.tell(GetCurrentTimeEntry).await.is_err() {
+                    break;
+                }
+            }
+        });
+
         Ok(Self {
             client,
             base_url: reqwest::Url::parse("https://api.track.toggl.com").unwrap(),
@@ -44,6 +59,7 @@ impl Actor for Toggl {
             project_id: i64::from_str_radix(&std::env::var("TOGGL_PROJECT_ID").unwrap(), 10)
                 .unwrap(),
             broker_ref: state.0,
+            current_time_entry: None,
         })
     }
 }
@@ -63,6 +79,7 @@ impl Message<GetTimeEntries> for Toggl {
             .get(self.base_url.join("/api/v9/me/time_entries").unwrap())
             .send()
             .await?
+            .error_for_status()?
             .json::<serde_json::Value>()
             .await?;
 
@@ -82,7 +99,8 @@ impl Message<StartTimeEntry> for Toggl {
         message: StartTimeEntry,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.client
+        let time_entry = self
+            .client
             .post(
                 self.base_url
                     .join(&format!(
@@ -101,7 +119,14 @@ impl Message<StartTimeEntry> for Toggl {
             }))
             .send()
             .await
+            .map_err(|_| TogglError)?
+            .error_for_status()
+            .map_err(|_| TogglError)?
+            .json::<serde_json::Value>()
+            .await
             .map_err(|_| TogglError)?;
+
+        self.current_time_entry = Some(time_entry.clone());
 
         self.broker_ref
             .tell(broker::Publish {
@@ -133,6 +158,7 @@ impl Message<StopTimeEntry> for Toggl {
             .map_err(|_| TogglError)?;
 
         if current_time_entry.is_null() {
+            self.current_time_entry = None;
             return Ok(());
         }
 
@@ -149,7 +175,11 @@ impl Message<StopTimeEntry> for Toggl {
             .json(&serde_json::json!({}))
             .send()
             .await
+            .map_err(|_| TogglError)?
+            .error_for_status()
             .map_err(|_| TogglError)?;
+
+        self.current_time_entry = None;
 
         self.broker_ref
             .tell(broker::Publish {
@@ -179,6 +209,8 @@ impl Message<ContinueTimeEntry> for Toggl {
             .send()
             .await
             .map_err(|_| TogglError)?
+            .error_for_status()
+            .map_err(|_| TogglError)?
             .json::<serde_json::Value>()
             .await
             .map_err(|_| TogglError)?;
@@ -187,7 +219,7 @@ impl Message<ContinueTimeEntry> for Toggl {
 
         let description = entry["description"].as_str().unwrap();
 
-        self.client
+        let time_entry = self.client
             .post(
                 self.base_url
                     .join(&format!(
@@ -206,7 +238,14 @@ impl Message<ContinueTimeEntry> for Toggl {
             }))
             .send()
             .await
+            .map_err(|_| TogglError)?
+            .error_for_status()
+            .map_err(|_| TogglError)?
+            .json::<serde_json::Value>()
+            .await
             .map_err(|_| TogglError)?;
+
+        self.current_time_entry = Some(time_entry.clone());
 
         self.broker_ref
             .tell(broker::Publish {
@@ -254,7 +293,7 @@ impl Message<AdjustTime> for Toggl {
                 .unwrap();
         let updated_start = current_start - chrono::Duration::minutes(message.minutes);
 
-        self.client
+        let time_entry = self.client
             .put(
                 self.base_url
                     .join(&format!(
@@ -269,7 +308,14 @@ impl Message<AdjustTime> for Toggl {
             }))
             .send()
             .await
+            .map_err(|_error| AdjustTimeError::RequestError)?
+            .error_for_status()
+            .map_err(|_error| AdjustTimeError::RequestError)?
+            .json::<serde_json::Value>()
+            .await
             .map_err(|_error| AdjustTimeError::RequestError)?;
+
+        self.current_time_entry = Some(time_entry.clone());
 
         self.broker_ref
             .tell(broker::Publish {
@@ -285,6 +331,101 @@ impl Message<AdjustTime> for Toggl {
     }
 }
 
+pub struct GetCurrentTimeEntry;
+
+impl Message<GetCurrentTimeEntry> for Toggl {
+    type Reply = Result<serde_json::Value, TogglError>;
+
+    async fn handle(
+        &mut self,
+        _message: GetCurrentTimeEntry,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let new_time_entry = self
+            .get_current_time_entry()
+            .await
+            .map_err(|_| TogglError)?;
+
+        let current_date = chrono::Utc::now().fixed_offset();
+
+        if self.current_time_entry.is_none() {
+            if new_time_entry.is_null() {
+                // Nothing to do
+            } else {
+                self.broker_ref
+                    .tell(broker::Publish {
+                        topic: "toggl".parse().unwrap(),
+                        message: crate::BrokerMessage::TimeEntryStarted(crate::TimeEntryStarted {
+                            description: new_time_entry["description"]
+                                .as_str()
+                                .unwrap()
+                                .to_string(),
+                        }),
+                    })
+                    .await
+                    .map_err(|_| TogglError)?;
+
+                let new_start =
+                    chrono::DateTime::parse_from_rfc3339(new_time_entry["start"].as_str().unwrap())
+                        .unwrap();
+
+                self.broker_ref
+                    .tell(broker::Publish {
+                        topic: "toggl".parse().unwrap(),
+                        message: crate::BrokerMessage::TimeEntryTimeUpdated(
+                            crate::TimeEntryTimeUpdated {
+                                minutes: (current_date - new_start).num_minutes() as i64,
+                            },
+                        ),
+                    })
+                    .await
+                    .map_err(|_| TogglError)?;
+            }
+        } else {
+            if new_time_entry.is_null() {
+                self.broker_ref
+                    .tell(broker::Publish {
+                        topic: "toggl".parse().unwrap(),
+                        message: crate::BrokerMessage::TimeEntryStopped,
+                    })
+                    .await
+                    .map_err(|_| TogglError)?;
+            } else {
+                let current_time_entry = self.current_time_entry.as_ref().unwrap();
+
+                let current_start = chrono::DateTime::parse_from_rfc3339(
+                    current_time_entry["start"].as_str().unwrap(),
+                )
+                .unwrap();
+
+                let new_start =
+                    chrono::DateTime::parse_from_rfc3339(new_time_entry["start"].as_str().unwrap())
+                        .unwrap();
+
+                self.broker_ref
+                    .tell(broker::Publish {
+                        topic: "toggl".parse().unwrap(),
+                        message: crate::BrokerMessage::TimeEntryTimeUpdated(
+                            crate::TimeEntryTimeUpdated {
+                                minutes: (current_start - new_start).num_minutes() as i64,
+                            },
+                        ),
+                    })
+                    .await
+                    .map_err(|_| TogglError)?;
+            }
+        }
+
+        if new_time_entry.is_null() {
+            self.current_time_entry = None;
+        } else {
+            self.current_time_entry = Some(new_time_entry.clone());
+        }
+
+        Ok(new_time_entry)
+    }
+}
+
 impl Toggl {
     async fn get_current_time_entry(&self) -> Result<serde_json::Value, reqwest::Error> {
         let result = self
@@ -296,6 +437,7 @@ impl Toggl {
             )
             .send()
             .await?
+            .error_for_status()?
             .json::<serde_json::Value>()
             .await?;
 

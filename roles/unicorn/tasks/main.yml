@@ -1,0 +1,30 @@
+---
+
+- name: copy code
+  ansible.builtin.copy:
+    remote_src: false
+    src: "{{ playbook_dir }}/unicorn/src/{{ item }}"
+    dest: /tmp/{{ item }}
+  loop:
+    - main.py
+    - font.py
+    - index.html
+  register: copy_result
+  tags:
+    - unicorn_code
+
+- name: deploy code
+  ansible.builtin.command:
+    cmd: "/home/pi/.local/bin/mpremote connect {{ unicorn_serial_path }} cp /tmp/{{ item }} :{{ item }}"
+  loop:
+    - main.py
+    - font.py
+    - index.html
+  tags:
+    - unicorn_code
+
+- name: restart
+  ansible.builtin.command:
+    cmd: "/home/pi/.local/bin/mpremote connect {{ unicorn_serial_path }} reset"
+  tags:
+    - unicorn_code

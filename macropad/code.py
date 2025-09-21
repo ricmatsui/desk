@@ -344,6 +344,9 @@ colors = dict(
     adjust_time=light_blue,
     switch_bose=white,
     shift=white,
+    read_inbox=white,
+    clear_inbox=white,
+    start_clock=white,
     up=white,
     down=white,
 )
@@ -372,6 +375,18 @@ adjust_time_gradient = gamma_adjust(
 
 switch_bose_gradient = gamma_adjust(
     fancy.expand_gradient([(0.0, black), (1.0, colors_50['switch_bose'])], 25),
+)
+
+read_inbox_gradient = gamma_adjust(
+    fancy.expand_gradient([(0.0, black), (1.0, colors_50['read_inbox'])], 25),
+)
+
+clear_inbox_gradient = gamma_adjust(
+    fancy.expand_gradient([(0.0, black), (1.0, colors_50['clear_inbox'])], 25),
+)
+
+start_clock_gradient = gamma_adjust(
+    fancy.expand_gradient([(0.0, black), (1.0, colors_50['start_clock'])], 25),
 )
 
 def wait_for_reply_animated(index, gradient, timeout=8000):
@@ -513,8 +528,11 @@ def command(state):
     macropad.pixels[3] = command_colors['adjust_time'].pack()
     macropad.pixels[4] = command_colors['switch_bose'].pack()
     macropad.pixels[5] = command_colors['switch_bose'].pack()
+    macropad.pixels[6] = command_colors['up'].pack()
+    macropad.pixels[7] = command_colors['up'].pack()
     macropad.pixels[8] = command_colors['up'].pack()
     macropad.pixels[9] = command_colors['shift'].pack()
+    macropad.pixels[10] = command_colors['up'].pack()
     macropad.pixels[11] = command_colors['down'].pack()
     macropad.pixels.show()
 
@@ -625,6 +643,24 @@ def command(state):
         if key_event and key_event.key_number == 5 and key_event.pressed:
             return dict(
                 name='send_switch_bose_fractal',
+                selected_option_index=selected_option_index
+            )
+
+        if key_event and key_event.key_number == 6 and key_event.pressed:
+            return dict(
+                name='send_read_inbox',
+                selected_option_index=selected_option_index
+            )
+
+        if key_event and key_event.key_number == 7 and key_event.pressed:
+            return dict(
+                name='send_clear_inbox',
+                selected_option_index=selected_option_index
+            )
+
+        if key_event and key_event.key_number == 10 and key_event.pressed:
+            return dict(
+                name='send_start_clock',
                 selected_option_index=selected_option_index
             )
 
@@ -822,6 +858,57 @@ def send_switch_bose_fractal(state):
     reset_activity_timer()
     return dict(name='command')
 
+def send_read_inbox(state):
+    send_message(dict(kind='readInbox'))
+
+    message = wait_for_reply_animated(6, read_inbox_gradient)
+
+    if not message or message['kind'] != 'success':
+        show_error()
+    else:
+        macropad.pixels[6] = command_colors['read_inbox'].pack()
+        macropad.pixels.show()
+        time.sleep(0.1)
+        clear_pixels()
+        time.sleep(0.1)
+
+    reset_activity_timer()
+    return dict(name='command')
+
+def send_clear_inbox(state):
+    send_message(dict(kind='clearInbox'))
+
+    message = wait_for_reply_animated(7, clear_inbox_gradient)
+
+    if not message or message['kind'] != 'success':
+        show_error()
+    else:
+        macropad.pixels[7] = command_colors['clear_inbox'].pack()
+        macropad.pixels.show()
+        time.sleep(0.1)
+        clear_pixels()
+        time.sleep(0.1)
+
+    reset_activity_timer()
+    return dict(name='command')
+
+def send_start_clock(state):
+    send_message(dict(kind='startClock'))
+
+    message = wait_for_reply_animated(10, start_clock_gradient)
+
+    if not message or message['kind'] != 'success':
+        show_error()
+    else:
+        macropad.pixels[10] = command_colors['start_clock'].pack()
+        macropad.pixels.show()
+        time.sleep(0.1)
+        clear_pixels()
+        time.sleep(0.1)
+
+    reset_activity_timer()
+    return dict(name='command')
+
 def send_stop(state):
     send_message(dict(kind='stopTimeEntry'))
 
@@ -924,6 +1011,9 @@ state_handlers = dict(
     send_adjust_time=send_adjust_time,
     send_switch_bose_mac=send_switch_bose_mac,
     send_switch_bose_fractal=send_switch_bose_fractal,
+    send_read_inbox=send_read_inbox,
+    send_clear_inbox=send_clear_inbox,
+    send_start_clock=send_start_clock,
 )
 
 state = dict(

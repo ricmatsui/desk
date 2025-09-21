@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unicorn</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+
+        hr {
+            margin-top: 3em;
+            margin-bottom: 3em;
+        }
+
+        p {
+            margin-top: 1em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Unicorn</h1>
+
+    <p>
+        <form data-format="form" action="/reset" method="GET">
+            <input type="submit" value="Reset">
+        </form>
+    </p>
+
+    <p>
+        <form data-format="form" action="/stop" method="GET">
+            <input type="submit" value="Stop">
+        </form>
+    </p>
+
+    <p>
+        <form data-format="form" action="/test" method="GET">
+            <input type="submit" value="Test">
+        </form>
+    </p>
+
+    <p>
+        <form data-format="form" action="/clear-inbox" method="GET">
+            <input type="submit" value="Clear Inbox">
+        </form>
+    </p>
+
+    <p>
+        <form data-format="form" action="/read-inbox" method="GET">
+            <input type="submit" value="Read Inbox">
+        </form>
+    </p>
+
+    <hr>
+
+    <form data-format="form" action="/tune" method="GET">
+        <p>
+            <fieldset>
+                <legend>Type</legend>
+                <label><input type="radio" name="type" value="int" checked>Integer</label>
+                <label><input type="radio" name="type" value="float">Float</label>
+                <label><input type="radio" name="type" value="str">String</label>
+            </fieldset>
+        </p>
+
+        <p>
+            <label>
+                Variable
+                <input type="text" name="var" value="">
+            </label>
+        </p>
+
+        <p>
+            <label>
+                Value
+                <input type="text" name="value" value="">
+            </label>
+        </p>
+
+        <input type="submit">
+    </form>
+
+    <hr>
+
+    <form data-format="form" action="/countdown" method="GET">
+        <input type="number" name="seconds" value="10">
+        <input type="submit" value="Countdown">
+    </form>
+
+    <hr>
+
+    <form data-format="form" action="/start-clock" method="GET">
+        <input type="number" name="start_timestamp" value="0">
+        <input type="submit" value="Start Clock">
+    </form>
+
+    <hr>
+
+    <form data-format="json" action="/message" method="POST">
+        <textarea name="text" rows="4" cols="20">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</textarea>
+        <p>
+            <label>
+                <input type="hidden" name="effects" value="__EMPTY__">
+                <input type="checkbox" name="effects" value="rainbow">Rainbow
+            </label>
+        </p>
+        <p>
+            <label>
+                <input type="hidden" name="read" value="false">
+                <input type="checkbox" name="read" value="true">Read
+            </label>
+        </p>
+        <input type="submit" value="Message">
+    </form>
+
+    <script>
+        function formToJSON(form) {
+          const data = new FormData(form);
+          const json = {};
+
+          for (const [key, value] of data.entries()) {
+            if (value === "true" || value === "false") {
+                json[key] = (value === "true");
+                continue;
+            }
+
+            if (value === "__EMPTY__") {
+                if (!json.hasOwnProperty(key)) {
+                    json[key] = [];
+                }
+                continue;
+            }
+
+            if (json.hasOwnProperty(key)) {
+              if (!Array.isArray(json[key])) {
+                json[key] = [json[key]];
+              }
+              json[key].push(value);
+            } else {
+              json[key] = value;
+            }
+          }
+
+          return json;
+        }
+
+        document.querySelectorAll("form[data-format]").forEach(form => {
+          form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            let url = form.getAttribute("action") || window.location.href;
+            const method = (form.getAttribute("method") || "get").toUpperCase();
+            const format = form.getAttribute("data-format") || "form";
+
+            let options = { method };
+
+            if (format === "json") {
+              body = JSON.stringify(formToJSON(form));
+              options.headers = { "Content-Type": "application/json" };
+            } else {
+              body = new FormData(form);
+            }
+
+            if (method === "GET") {
+                const params = new URLSearchParams(new FormData(form)).toString();
+                url += (url.includes("?") ? "&" : "?") + params;
+            } else {
+                if (format === "json") {
+                    options.body = JSON.stringify(formToJSON(form));
+                    options.headers = { "Content-Type": "application/json" };
+                } else {
+                    options.body = new FormData(form);
+                }
+            }
+
+            try {
+              const res = await fetch(url, options);
+              const text = await res.text();
+              console.log("Response: ", text);
+            } catch (err) {
+              alert("Fetch error: " + err);
+            }
+          });
+        });
+    </script>
+
+</body>

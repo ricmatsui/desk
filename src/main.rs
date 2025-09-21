@@ -1,23 +1,39 @@
-use raylib::prelude::*;
-
 use kameo::actor::Actor;
-use kameo::error::Infallible;
 use kameo::prelude::*;
 use kameo_actors::broker;
 use tracing_subscriber::EnvFilter;
 
+mod apps;
 mod backlight;
+mod circuit_playground;
+mod home_assistant;
 mod light;
 mod macropad;
-mod raylib_actor;
+mod raylib_manager;
+mod restarting_manager;
+mod serial_sink;
 mod thinkink;
 mod toggl;
+mod unicorn;
+mod urban;
 
 #[derive(Debug, Clone)]
 pub enum BrokerMessage {
     TimeEntryStarted(TimeEntryStarted),
     TimeEntryStopped,
     TimeEntryTimeUpdated(TimeEntryTimeUpdated),
+    CalendarEventUpcoming(CalendarEventUpcoming),
+    Message(Message),
+    ReadInbox,
+    ClearInbox,
+    StartClock,
+}
+
+#[derive(Debug, Clone)]
+pub struct Message {
+    pub text: String,
+    pub effects: Vec<String>,
+    pub read: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +46,13 @@ pub struct TimeEntryTimeUpdated {
     pub minutes: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct CalendarEventUpcoming {
+    pub description: String,
+    pub start_at: chrono::DateTime<chrono::Local>,
+    pub end_at: chrono::DateTime<chrono::Local>,
+}
+
 pub enum RaylibRequest {
     RenderThinkInkImage,
 }
@@ -38,43 +61,9 @@ pub enum RaylibResponse {
     ThinkInkImage(Vec<u8>),
 }
 
-type SpawnFn = Box<
-    dyn Fn(ActorRef<RestartingManager>) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>>
-        + Send,
->;
-
-pub struct RestartingManager {
-    spawn: SpawnFn,
-}
-
-impl Actor for RestartingManager {
-    type Args = (SpawnFn,);
-    type Error = Infallible;
-
-    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let spawn = state.0;
-
-        spawn(actor_ref.clone()).await;
-
-        Ok(Self { spawn })
-    }
-
-    async fn on_link_died(
-        &mut self,
-        actor_ref: WeakActorRef<Self>,
-        id: ActorID,
-        _reason: ActorStopReason,
-    ) -> Result<::core::ops::ControlFlow<kameo::error::ActorStopReason>, Self::Error> {
-        println!("link died - {:?}", id);
-        (self.spawn)(actor_ref.upgrade().unwrap()).await;
-        println!("spawned - {:?}", id);
-        Ok(::core::ops::ControlFlow::Continue(()))
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter("kameo=trace,info".parse::<EnvFilter>()?)
+        .with_env_filter("kameo=trace,reqwest=trace,info".parse::<EnvFilter>().unwrap())
         .without_time()
         .with_target(true)
         .init();
@@ -85,26 +74,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (raylib_transmit, raylib_receive) = tokio::sync::mpsc::channel::<RaylibRequest>(64);
-    let (raylib_actor_transmit, raylib_actor_receive) =
+    let (raylib_manager_transmit, raylib_manager_receive) =
         tokio::sync::mpsc::channel::<RaylibResponse>(64);
 
     let tokio_thread = std::thread::spawn(move || {
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(tokio_main(raylib_transmit, raylib_actor_receive))
+            .block_on(tokio_main(raylib_transmit, raylib_manager_receive))
             .unwrap();
     });
 
-    raylib_main(raylib_actor_transmit, raylib_receive);
+    raylib_main(raylib_manager_transmit, raylib_receive);
 
     tokio_thread.join().unwrap();
+}
 
-    Ok(())
+macro_rules! restarting {
+    ($type:ty, ($($var:ident),* $(,)?)) => {
+        restarting_manager::RestartingManager::<$type>::spawn((
+            Box::new({
+                $( let $var = $var.clone(); )*
+                move || ( $( $var.clone(), )* )
+            }),
+        ))
+    };
+}
+
+#[async_trait::async_trait]
+trait WaitableActorRef {
+    async fn wait_for_shutdown(&self);
+}
+
+#[async_trait::async_trait]
+impl<A: Actor> WaitableActorRef for ActorRef<A> {
+    async fn wait_for_shutdown(&self) {
+        self.wait_for_shutdown().await;
+    }
 }
 
 async fn tokio_main(
     raylib_transmit: tokio::sync::mpsc::Sender<RaylibRequest>,
-    raylib_actor_receive: tokio::sync::mpsc::Receiver<RaylibResponse>,
+    raylib_manager_receive: tokio::sync::mpsc::Receiver<RaylibResponse>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     ActorSwarm::bootstrap()?
         .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
@@ -114,85 +124,41 @@ async fn tokio_main(
         kameo_actors::DeliveryStrategy::Guaranteed,
     ));
 
-    let raylib_actor_ref =
-        raylib_actor::Raylib::spawn((raylib_transmit.clone(), raylib_actor_receive));
+    let raylib_manager_ref =
+        raylib_manager::RaylibManager::spawn((raylib_transmit.clone(), raylib_manager_receive));
 
-    let backlight_ref = backlight::Backlight::spawn(());
+    let actor_refs: Vec<Box<dyn WaitableActorRef>> = vec![
+        Box::new(broker_ref.clone()),
+        Box::new(raylib_manager_ref.clone()),
+        Box::new(restarting!(backlight::Backlight, ())),
+        Box::new(restarting!(macropad::Macropad, (broker_ref,))),
+        Box::new(restarting!(circuit_playground::CircuitPlayground, ())),
+        Box::new(restarting!(
+            thinkink::ThinkInk,
+            (broker_ref, raylib_manager_ref)
+        )),
+        Box::new(restarting!(unicorn::Unicorn, (broker_ref,))),
+        Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
+        Box::new(restarting!(urban::Urban, ())),
+    ];
 
-    let toggl_ref = toggl::Toggl::spawn((broker_ref.clone(),));
-
-    let macropad_ref = macropad::Macropad::spawn((toggl_ref.clone(),));
-
-    let thinkink_broker_ref = broker_ref.clone();
-    let thinkink_raylib_actor_ref = raylib_actor_ref.clone();
-
-    let restarting_thinkink = RestartingManager::spawn((Box::new(move |actor_ref| {
-        let thinkink_broker_ref = thinkink_broker_ref.clone();
-        let thinkink_raylib_actor_ref = thinkink_raylib_actor_ref.clone();
-
-        Box::pin(async move {
-            thinkink::ThinkInk::spawn_link(
-                &actor_ref,
-                (
-                    thinkink_broker_ref.clone(),
-                    thinkink_raylib_actor_ref.clone(),
-                ),
-            )
-            .await;
-        })
-    }),));
-
-    broker_ref.wait_for_shutdown().await;
-    raylib_actor_ref.wait_for_shutdown().await;
-    backlight_ref.wait_for_shutdown().await;
-    toggl_ref.wait_for_shutdown().await;
-    macropad_ref.wait_for_shutdown().await;
-    restarting_thinkink.wait_for_shutdown().await;
+    for actor_ref in actor_refs {
+        actor_ref.wait_for_shutdown().await;
+    }
 
     Ok(())
 }
 
 fn raylib_main(
-    raylib_actor_transmit: tokio::sync::mpsc::Sender<RaylibResponse>,
+    raylib_manager_transmit: tokio::sync::mpsc::Sender<RaylibResponse>,
     mut raylib_receive: tokio::sync::mpsc::Receiver<RaylibRequest>,
 ) {
-    while let Some(_) = raylib_receive.blocking_recv() {
-        let (mut rl, thread) = raylib::init().size(240, 240).title("Desk").build();
-
-        rl.set_target_fps(30);
-
-        let mut d = rl.begin_drawing(&thread);
-
-        d.clear_background(Color::WHITE);
-        d.draw_text("Hello, world!", 12, 12, 20, Color::BLACK);
-
-        let image =
-            raylib::core::texture::Image::gen_image_color(296 as i32, 128 as i32, Color::WHITE);
-
-        let mut data = vec![0; image.width() as usize * image.height() as usize / 4];
-
-        let image_data = unsafe {
-            std::slice::from_raw_parts(
-                image.data as *const u8,
-                image.width() as usize * image.height() as usize * 2,
-            )
-        };
-
-        for i in 0..data.len() {
-            let mut byte = 0;
-
-            for j in 0..4 {
-                let pixel = (image_data[i * 8 + j * 2] & 0b1100) >> 2;
-
-                byte |= pixel << (3 - j) * 2;
+    while let Some(request) = raylib_receive.blocking_recv() {
+        match request {
+            RaylibRequest::RenderThinkInkImage => {
+                apps::thinkink_image::thinkink_image(&raylib_manager_transmit);
             }
-
-            data[i] = byte;
         }
-
-        raylib_actor_transmit
-            .blocking_send(RaylibResponse::ThinkInkImage(data))
-            .unwrap();
     }
 }
 

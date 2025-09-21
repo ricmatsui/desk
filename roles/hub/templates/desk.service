@@ -20,5 +20,7 @@ Environment=LATITUDE={{ latitude }}
 Environment=LONGITUDE={{ longitude }}
 Environment=THINKINK_SERIAL_PATH={{ thinkink_serial_path }}
 Environment=MACROPAD_SERIAL_PATH={{ macropad_serial_path }}
+Environment=CIRCUIT_PLAYGROUND_SERIAL_PATH={{ circuit_playground_serial_path }}
+Environment=UNICORN_BASE_URL={{ unicorn_base_url }}
 Restart=always
 RestartSec=5s

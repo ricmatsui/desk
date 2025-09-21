@@ -1,3 +1,6 @@
 [submodule "env"]
 	path = env
 	url = ./desk-env.git
+[submodule "external/glslcc/src"]
+	path = external/glslcc/src
+	url = https://github.com/ricmatsui/glslcc
