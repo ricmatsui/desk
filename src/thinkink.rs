@@ -36,6 +36,14 @@ impl Actor for ThinkInk {
             .await
             .unwrap();
 
+        broker_ref
+            .tell(broker::Subscribe {
+                topic: "servo".parse().unwrap(),
+                recipient: actor_ref.clone().recipient(),
+            })
+            .await
+            .unwrap();
+
         crate::light::Light::spawn_link(&actor_ref, (actor_ref.clone(),)).await;
 
         actor_ref.tell(UpdateImage).try_send().unwrap();
@@ -155,6 +163,22 @@ impl Message<crate::BrokerMessage> for ThinkInk {
                 self.send_message(serde_json::json!({
                     "kind": "adjustAnimationTime",
                     "minutes": update.minutes,
+                }))
+                .await;
+            }
+            crate::BrokerMessage::ServoX(value) => {
+                self.send_message(serde_json::json!({
+                    "kind": "servoX",
+                    "targetValue": value,
+                    "speed": 5,
+                }))
+                .await;
+            }
+            crate::BrokerMessage::ServoY(value) => {
+                self.send_message(serde_json::json!({
+                    "kind": "servoY",
+                    "targetValue": value,
+                    "speed": 5,
                 }))
                 .await;
             }

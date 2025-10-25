@@ -5,18 +5,23 @@ from picographics import PicoGraphics, DISPLAY_GALACTIC_UNICORN as DISPLAY
 from WIFI_CONFIG import SSID, PSK
 from font import font
 import asyncio
+import deflate
+import io
 import math
 import time
 import machine
+import ntptime
 import heapq
+import json
 import random
+import requests
 
 DELAY_MILLIS = 24
 
 HOLD_ENABLE = True
 HOLD_TIME = 60
 TEXT = "The quick brown fox jumps over the lazy dog."
-RAINBOW_TIMER_THRESHOLD = 3
+RAINBOW_TIMER_THRESHOLD = 10
 RAINBOW_FRAME_MULTIPLIER = 2
 
 unicorn = GalacticUnicorn()
@@ -207,6 +212,11 @@ async def read_inbox(request):
 async def start_clock(request):
     start_timestamp = int(request.args['start_timestamp'])
     enqueue_animation(clock_animation(start_timestamp), priority=5)
+    return 'started'
+
+@server.route("/spacex", methods=["GET"])
+async def spacex(request):
+    enqueue_animation(spacex_animation(), priority=2)
     return 'started'
 
 async def test_animation():
@@ -492,6 +502,176 @@ async def countdown_animation(timestamp):
     except AnimationInterrupt:
         enqueue_animation(countdown_animation(timestamp), priority=2)
         raise
+
+async def spacex_animation():
+    graphics.set_font(font)
+
+    graphics.set_pen(YELLOW)
+    graphics.pixel(0, 0)
+    unicorn.update(graphics)
+
+    while True:
+        try:
+            ntptime.settime()
+            break
+        except:
+            time.sleep(1)
+            pass
+
+    graphics.set_pen(BLUE)
+    graphics.pixel(0, 0)
+    unicorn.update(graphics)
+
+    response = requests.get("https://sxcontent9668.azureedge.us/cms-assets/future_missions.json")
+    content = json.loads(deflate.DeflateIO(io.StringIO(response.content)).read())
+
+    mission_id = min(content, key=lambda mission_id: content[mission_id]['Order'])
+
+    graphics.set_pen(GREEN)
+    graphics.pixel(0, 0)
+    unicorn.update(graphics)
+
+    sleep_reset()
+
+    y = -2 - 11
+
+    paused = False
+    clock = None
+    last_update = None
+    frame = 0
+
+    while True:
+        await sleep_frame()
+        frame += 1
+
+        if y < -2:
+            y += 1
+
+        if last_update is None or time.time() - last_update > (10 if paused else 30):
+            try:
+                response = requests.get("https://sxcontent9668.azureedge.us/cms-assets/future_missions.json")
+                content = json.loads(deflate.DeflateIO(io.StringIO(response.content)).read())
+
+                tzero = content[mission_id]['TZeroLaunchDate']['Seconds']
+                paused = content[mission_id]['TZeroPaused']
+            except:
+                pass
+
+            last_update = time.time()
+            sleep_reset()
+
+        timer = abs(time.time() - tzero)
+
+        hour = math.floor(timer / 3600)
+        minute = math.floor(timer / 60 % 60)
+        second = math.floor(timer % 60)
+
+        previous_clock = clock
+
+        if paused:
+            clock = "HOLD"
+        else:
+            clock = "{}:{:02}:{:02}".format(hour, minute, second)
+
+        w = graphics.measure_text(clock, scale=1, spacing=2)
+        x = int(WIDTH / 2 - w / 2 + 1)
+
+        if previous_clock is None or clock == previous_clock or y != -2:
+            graphics.set_pen(BLACK)
+            graphics.clear()
+            graphics.set_pen(WHITE)
+
+            graphics.text(clock, x, y, scale=1, spacing=2)
+
+            if timer < 10:
+                apply_rainbow(frame)
+
+            unicorn.update(graphics)
+        elif len(previous_clock) != len(clock):
+            movement_y = 0
+            padding = 2
+            while True:
+                await sleep_frame()
+                frame += 1
+
+                movement_y += 1
+
+                if movement_y > 11 + padding:
+                    break
+
+                graphics.set_pen(BLACK)
+                graphics.clear()
+                graphics.set_pen(WHITE)
+
+                previous_w = graphics.measure_text(previous_clock, scale=1, spacing=2)
+                previous_x = int(WIDTH / 2 - previous_w / 2 + 1)
+
+                graphics.text(clock, x, y + movement_y - 11 - padding, scale=1, spacing=2)
+                graphics.text(previous_clock, previous_x, y + movement_y, scale=1, spacing=2)
+
+                if timer < 10:
+                    apply_rainbow(frame)
+
+                unicorn.update(graphics)
+        else:
+            ranges = []
+
+            start = None
+            kind = None
+            for i in range(len(previous_clock)):
+                if kind is None:
+                    if previous_clock[i] == clock[i]:
+                        kind = 'fixed'
+                        start = i
+                    else:
+                        kind = 'moving'
+                        start = i
+                elif kind == 'fixed':
+                    if previous_clock[i] != clock[i]:
+                        ranges.append((kind, start, i))
+                        kind = 'moving'
+                        start = i
+                elif kind == 'moving':
+                    if previous_clock[i] == clock[i]:
+                        ranges.append((kind, start, i))
+                        kind = 'fixed'
+                        start = i
+            ranges.append((kind, start, len(previous_clock)))
+            
+            movement_y = 0
+            padding = 2
+            while True:
+                await sleep_frame()
+                frame += 1
+
+                movement_y += 1
+
+                if movement_y > 11 + padding:
+                    break
+
+                graphics.set_pen(BLACK)
+                graphics.clear()
+                graphics.set_pen(WHITE)
+
+                movement_x = 0
+
+                for kind, start, end in ranges:
+                    if kind == 'fixed':
+                        text = clock[start:end]
+                        graphics.text(text, x + movement_x, y, scale=1, spacing=2)
+                        movement_x += graphics.measure_text(text, scale=1, spacing=2)
+                    elif kind == 'moving':
+                        text = clock[start:end]
+                        previous_text = previous_clock[start:end]
+                        graphics.text(text, x + movement_x, y + movement_y - 11 - padding, scale=1, spacing=2)
+                        graphics.text(previous_text, x + movement_x, y + movement_y, scale=1, spacing=2)
+                        movement_x += graphics.measure_text(text, scale=1, spacing=2)
+
+                if timer < 10:
+                    apply_rainbow(frame)
+
+                unicorn.update(graphics)
+
 
 rainbow_pens = []
 rainbow_pens_len = WIDTH * 2

@@ -88,7 +88,7 @@ where
         let prepared_child = A::prepare();
         let child_ref = prepared_child.actor_ref().clone();
         child_ref.link(&actor_ref).await;
-        prepared_child.spawn(get_child_args()).await.unwrap().unwrap();
+        prepared_child.spawn(get_child_args());
 
         child_ref
     }

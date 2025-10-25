@@ -27,6 +27,8 @@ pub enum BrokerMessage {
     ReadInbox,
     ClearInbox,
     StartClock,
+    ServoX(u32),
+    ServoY(u32),
 }
 
 #[derive(Debug, Clone)]

@@ -10,26 +10,31 @@ import adafruit_display_text as display_text
 import terminalio
 import adafruit_fancyled.adafruit_fancyled as fancy
 import vectorio
-
 import adafruit_pcf8591.pcf8591 as PCF
 from adafruit_pcf8591.analog_in import AnalogIn
-
-
 from rainbowio import colorwheel
 from adafruit_seesaw.seesaw import Seesaw
 from adafruit_seesaw.analoginput import AnalogInput
 from adafruit_seesaw import neopixel
-
-
 from adafruit_dps310.basic import DPS310
-
 import adafruit_vl6180x
-
 import board
+
 i2c = board.I2C()
 
-# distance_sensor = adafruit_vl6180x.VL6180X(i2c)
+neoslider = Seesaw(i2c, 0x30)
+potentiometer = AnalogInput(neoslider, 18)
 
+pcf = PCF.PCF8591(i2c)
+pcf_in_0 = AnalogIn(pcf, PCF.A0)
+pcf_in_3 = AnalogIn(pcf, PCF.A3)
+
+macropad = MacroPad()
+
+macropad.pixels[0] = fancy.CRGB(1.0, 1.0, 0.0).pack()
+macropad.pixels.show()
+
+# distance_sensor = adafruit_vl6180x.VL6180X(i2c)
 
 # distance_sensor.start_range_continuous(2000)
 # distance_sensor.start_range_continuous(250)
@@ -47,8 +52,6 @@ i2c = board.I2C()
 
 # dps310 = DPS310(i2c)
 
-neoslider = Seesaw(i2c, 0x30)
-potentiometer = AnalogInput(neoslider, 18)
 # pixels = neopixel.NeoPixel(neoslider, 14, 4, pixel_order=neopixel.GRB)
 
 # def potentiometer_to_color(value):
@@ -62,30 +65,6 @@ potentiometer = AnalogInput(neoslider, 18)
     # Fill the pixels a color based on the position of the potentiometer.
     # pixels.fill(colorwheel(potentiometer_to_color(potentiometer.value)))
     # time.sleep(0.1)
-
-
-pcf = PCF.PCF8591(i2c)
-pcf_in_0 = AnalogIn(pcf, PCF.A0)
-pcf_in_3 = AnalogIn(pcf, PCF.A3)
-
-# print('hello')
-
-# while True:
-    # raw_value = pcf_in_0.value
-    # scaled_value = (raw_value / 65535) * pcf_in_0.reference_voltage
-    # raw_value_x = pcf_in_3.value
-    # scaled_value_x = (raw_value_x / 65535) * pcf_in_3.reference_voltage
-
-    # # print((scaled_value, scaled_value_x))
-    # # print((raw_value, raw_value_x, pcf_in_0.reference_voltage))
-
-    # time.sleep(0.06)
-
-macropad = MacroPad()
-
-def display_description():
-    text_lines[0].text = description
-    text_lines.show()
 
 def display_sleep():
     macropad.display.bus.send(int(0xAE), '')
@@ -101,11 +80,6 @@ def send_message(message):
     message_json = json.dumps(message)
     print('->', message_json)
     usb_cdc.data.write(bytes(message_json + '\n', 'utf-8'))
-    usb_cdc.data.flush()
-
-def send_heartbeat():
-    print('->', 'heartbeat')
-    usb_cdc.data.write(bytes('h\n', 'utf-8'))
     usb_cdc.data.flush()
 
 def send_potentiometer(value):
@@ -148,6 +122,9 @@ def get_message():
     in_waiting = usb_cdc.data.in_waiting
     print(f'<- {in_waiting:3}', json.dumps(message))
 
+    if message['kind'] == 'heartbeat':
+        return None
+
     return message
 
 last_activity = time.time()
@@ -155,6 +132,17 @@ last_activity = time.time()
 def reset_activity_timer():
     global last_activity
     last_activity = time.time()
+
+def check_activity_timeout(next_name):
+    global last_activity
+    global state
+
+    if time.time() - last_activity < 3:
+        return False
+
+    state['name'] = 'sleep'
+    state['sleep_next_name'] = next_name
+    return True
 
 key_event_buffer = []
 key_state = [False for _ in range(12)]
@@ -314,80 +302,66 @@ def get_light_diff():
 
     return diff
 
-black = fancy.CHSV(0.0, 0.0, 0.0)
-white = fancy.CHSV(0.0, 0.0, 1.0)
-green = fancy.CRGB(0.0, 1.0, 0.0)
-red = fancy.CRGB(1.0, 0.0, 0.0)
-yellow = fancy.CRGB(1.0, 1.0, 0.0)
-magenta = fancy.CRGB(1.0, 0.0, 1.0)
-light_blue = fancy.unpack(0x89CFF0)
-
 def create_palette(foreground, background):
     palette = displayio.Palette(2)
     palette[0] = background.pack()
     palette[1] = foreground.pack()
     return palette;
 
-palettes = dict(
-    normal=create_palette(foreground=white, background=black),
-    selected=create_palette(foreground=black, background=white),
-)
-
 def gamma_adjust(value):
     return fancy.gamma_adjust(value, gamma_value=2.7, brightness=0.3)
 
-colors = dict(
-    start=green,
-    stop=red,
-    load=yellow,
-    error=magenta,
-    adjust_time=light_blue,
-    switch_bose=white,
-    shift=white,
-    read_inbox=white,
-    clear_inbox=white,
-    start_clock=white,
-    up=white,
-    down=white,
+linear_colors = dict(
+    black=fancy.CHSV(0.0, 0.0, 0.0),
+    white=fancy.CHSV(0.0, 0.0, 1.0),
+    green=fancy.CRGB(0.0, 1.0, 0.0),
+    red=fancy.CRGB(1.0, 0.0, 0.0),
+    yellow=fancy.CRGB(1.0, 1.0, 0.0),
+    magenta=fancy.CRGB(1.0, 0.0, 1.0),
+    light_blue=fancy.unpack(0x89CFF0),
+
+    cyan=fancy.unpack(0x00CED1),
+    light_purple=fancy.unpack(0xE6E6FA),
+    peach=fancy.unpack(0xFFDAB9),
+    #navy_blue=fancy.unpack(0x001F3F),
+    forest_green=fancy.unpack(0x229B22),
+    burgundy=fancy.unpack(0x800020),
+    cream=fancy.unpack(0xFFFDD0),
+    gray=fancy.unpack(0xA9A9A9),
+    amber=fancy.unpack(0xFFC107),
 )
 
-colors_50 = { k: fancy.mix(v, black, 0.5) for k, v in colors.items() }
-
-command_colors = { k: gamma_adjust(v) for k, v in colors_50.items() }
-
-error_color = gamma_adjust(colors['error'])
-
-start_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['start'])], 25),
+palettes = dict(
+    normal=create_palette(
+        foreground=linear_colors['white'],
+        background=linear_colors['black'],
+    ),
+    inverted=create_palette(
+        foreground=linear_colors['black'],
+        background=linear_colors['white'],
+    ),
 )
 
-stop_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['stop'])], 25),
-)
+linear_colors_50 = {
+    k: fancy.mix(v, linear_colors['black'], 0.5)
+    for k, v in linear_colors.items()
+}
 
-load_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['load'])], 25),
-)
+colors = { k: gamma_adjust(v) for k, v in linear_colors.items() }
+colors_50 = { k: gamma_adjust(v) for k, v in linear_colors_50.items() }
 
-adjust_time_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['adjust_time'])], 25),
-)
-
-switch_bose_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['switch_bose'])], 25),
-)
-
-read_inbox_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['read_inbox'])], 25),
-)
-
-clear_inbox_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['clear_inbox'])], 25),
-)
-
-start_clock_gradient = gamma_adjust(
-    fancy.expand_gradient([(0.0, black), (1.0, colors_50['start_clock'])], 25),
-)
+gradients_50 = {
+    k: gamma_adjust(
+        fancy.expand_gradient(
+            [
+                (0.0, linear_colors['black']),
+                (1.0, v)
+            ],
+            25,
+        )
+    )
+    for k, v in linear_colors_50.items()
+}
 
 def wait_for_reply_animated(index, gradient, timeout=8000):
     clear_pixels()
@@ -407,90 +381,276 @@ def wait_for_reply_animated(index, gradient, timeout=8000):
         if position > timeout:
             return None
 
+def check_response(message, pixel_index, success_color):
+    if not message or message['kind'] != 'success':
+        show_error()
+    else:
+        macropad.pixels[pixel_index] = success_color.pack()
+        macropad.pixels.show()
+        time.sleep(0.1)
+        clear_pixels()
+        time.sleep(0.1)
+
 def show_error():
-    macropad.pixels.fill(error_color.pack())
+    macropad.pixels.fill(colors['magenta'].pack())
     macropad.pixels.show()
     time.sleep(0.3)
     clear_pixels()
 
-def sleep(state):
+def set_option_tile_grid_selected(tile_grid, selected):
+    palette = palettes['inverted' if selected else 'normal']
+    tile_grid.pixel_shader = palette
+
+def set_toolbar_pixels():
+    macropad.pixels[9] = colors_50['white'].pack()
+    macropad.pixels[10] = colors_50['white'].pack()
+    macropad.pixels[11] = colors_50['cyan'].pack()
+
+def startup():
+    global state
+
+    clear_pixels()
+    macropad.pixels[0] = colors_50['green'].pack()
+    macropad.pixels.show()
+
+    state['name'] = 'toggl'
+
+def sleep():
+    global state
+
     while macropad.pixels.brightness > 0:
         macropad.pixels.brightness = max(0, macropad.pixels.brightness - 0.05)
         macropad.pixels.show()
+
         macropad.display.brightness = max(0, macropad.display.brightness - 0.05)
+
         time.sleep(0.02)
 
     display_sleep();
 
-    key_event = None
-    encoder_diff = 0
-    potentiometer_diff = 0
     while True:
-        send_heartbeat()
-
+        get_message()
         key_event = get_key_event(peek=True)
-        distance = get_distance()
-        encoder_diff = get_encoder_diff(peek=True)
-        potentiometer_diff = get_potentiometer_diff(peek=True)
-        x_axis_diff = get_x_axis_diff(peek=True)
-        y_axis_diff = get_y_axis_diff(peek=True)
 
         if key_event:
             break
 
-        if distance < 255:
-            break
-
-        if encoder_diff != 0:
-            break
-
-        if abs(potentiometer_diff) > 5:
-            break
-
-        if x_axis_diff != 0 or y_axis_diff != 0:
-            break
-
-        last_activity_diff = time.time() - last_activity
-
-        if last_activity_diff > 60:
-            light_diff = get_light_diff()
-        else:
-            light_diff = 0
-
-        #if abs(light_diff) > 0.5 and distance_sensor.range < 255:
-        #    reset_activity_timer()
-        #    break
-
-        if last_activity_diff > 240:
-            set_distance_delay(None)
-        elif last_activity_diff > 120:
-            set_distance_delay(5000)
-        elif last_activity_diff > 60:
-            set_distance_delay(2000)
-        elif last_activity_diff > 30:
-            set_distance_delay(1000)
-
     reset_activity_timer()
-    set_distance_delay(250)
     display_wake()
 
     while macropad.pixels.brightness < 1:
         macropad.pixels.brightness = min(1, macropad.pixels.brightness + 0.05)
         macropad.pixels.show()
+
         macropad.display.brightness = min(1, macropad.display.brightness + 0.5)
+
         time.sleep(0.01)
 
-    macropad.pixels.brightness = 1
-    macropad.pixels.show()
     macropad.display.brightness = 1
 
-    return dict(name='command')
+    state['name'] = state['sleep_next_name']
 
-def draw_options(state):
-    options = state['options']
-    selected_option_index = state['selected_option_index']
+def apps():
+    global state
 
-    options_group = displayio.Group()
+    group = displayio.Group(y=macropad.display.height//2)
+
+    label = display_text.bitmap_label.Label(
+        font=terminalio.FONT,
+        text=state['apps_source_name']
+    )
+
+    group.append(label)
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    clear_pixels()
+    macropad.pixels[0] = colors_50['light_purple'].pack()
+    macropad.pixels[1] = colors_50['cream'].pack()
+    macropad.pixels[2] = colors_50['light_blue'].pack()
+    macropad.pixels[3] = colors_50['yellow'].pack()
+
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
+    while True:
+        get_message()
+        key_event = get_key_event()
+
+        if key_event:
+            if key_event.key_number == 11 and not key_event.pressed:
+                state['name'] = label.text
+                break
+
+            if key_event.pressed:
+                if key_event.key_number == 0:
+                    label.text = 'toggl'
+
+                if key_event.key_number == 1:
+                    label.text = 'unicorn'
+
+                if key_event.key_number == 2:
+                    label.text = 'bluetooth'
+
+                if key_event.key_number == 3:
+                    label.text = 'servo'
+
+                macropad.display.refresh()
+
+def toggl():
+    global state
+
+    if not state['toggl_options_loaded']:
+        state['name'] = 'toggl_get_time_entries'
+        return
+
+    clear_pixels()
+    macropad.pixels[0] = colors_50['yellow'].pack()
+    macropad.pixels[1] = colors_50['red'].pack()
+    macropad.pixels[2] = colors_50['green'].pack()
+    macropad.pixels[3] = colors_50['light_blue'].pack()
+
+    macropad.pixels[5] = colors_50['white'].pack()
+    macropad.pixels[8] = colors_50['white'].pack()
+
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
+    macropad.display.show(state['toggl_options_group'])
+    macropad.display.refresh()
+
+    while True:
+        if check_activity_timeout('toggl'):
+            break
+
+        get_message()
+
+        key_event = get_key_event()
+
+        previous_index = state['toggl_index']
+
+        if key_event and key_event.pressed:
+            if key_state[11]:
+                state['name'] = 'apps'
+                state['apps_source_name'] = 'toggl'
+                break
+
+            if key_event.key_number == 0:
+                state['name'] = 'toggl_get_time_entries'
+                break
+
+            if key_event.key_number == 1:
+                state['name'] = 'toggl_send_stop'
+                break
+
+            if key_event.key_number == 2:
+                if key_state[9]:
+                    state['name'] = 'toggl_send_continue'
+                    break
+                else:
+                    state['name'] = 'toggl_send_start'
+                    break
+
+            if key_event.key_number == 3:
+                state['name'] = 'toggl_adjust_time'
+                break
+
+            if key_state[10]:
+                if key_event.key_number == 5:
+                    state['toggl_index'] -= 4 + (state['toggl_index'] % 4)
+
+                if key_event.key_number == 8:
+                    state['toggl_index'] += 4 - (state['toggl_index'] % 4)
+            elif key_state[9]:
+                if key_event.key_number == 5:
+                    state['toggl_index'] = 0
+
+                if key_event.key_number == 8:
+                    state['toggl_index'] = len(state['toggl_options']) - 1
+            else:
+                if key_event.key_number == 5:
+                    state['toggl_index'] -= 1
+
+                if key_event.key_number == 8:
+                    state['toggl_index'] += 1
+
+            state['toggl_index'] = (
+                state['toggl_index'] + len(state['toggl_options'])
+            ) % len(state['toggl_options'])
+
+        if state['toggl_index'] != previous_index:
+            set_option_tile_grid_selected(
+                state['toggl_options_group'][previous_index],
+                False
+            )
+
+            set_option_tile_grid_selected(
+                state['toggl_options_group'][state['toggl_index']],
+                True
+            )
+
+            page = int(state['toggl_index'] / 4)
+            target_options_group_y = -page*64
+            display_options_group_y = state['toggl_options_group'].y
+
+            macropad.display.refresh()
+
+            while state['toggl_options_group'].y != target_options_group_y:
+                display_options_group_y += (
+                    (target_options_group_y - display_options_group_y) * 0.5
+                )
+                state['toggl_options_group'].y = round(display_options_group_y)
+                macropad.display.refresh()
+
+def toggl_get_time_entries():
+    global state
+
+    state['toggl_options_loaded'] = True
+
+    send_message(dict(kind='getTimeEntries'))
+
+    entries = []
+
+    clear_pixels()
+    start = supervisor.ticks_ms()
+
+    while True:
+        position = supervisor.ticks_ms() - start
+
+        color = fancy.palette_lookup(gradients_50['yellow'], position / 1000)
+        macropad.pixels[0] = color.pack()
+        macropad.pixels.show()
+
+        message = get_message()
+
+        if message:
+            if message['kind'] == 'timeEntry':
+                entries.append(message['timeEntry']['description'])
+            else:
+                break
+
+        if position > 5000:
+            break
+
+    if not message or message['kind'] != 'success':
+        show_error()
+        reset_activity_timer()
+        state['name'] = 'toggl'
+        return
+
+    options = list(set(entries))
+    options.sort()
+
+    if not len(options):
+        options.append('')
+
+    clear_pixels()
+    reset_activity_timer()
+
+    state['toggl_index'] = 0
+    state['toggl_options'] = options
+
+    state['toggl_options_group'] = displayio.Group()
 
     for i, option in enumerate(options):
         label = display_text.bitmap_label.Label(
@@ -506,171 +666,62 @@ def draw_options(state):
             y=i*16,
         )
 
-        options_group.append(label_tile_grid)
+        state['toggl_options_group'].append(label_tile_grid)
 
-        selected = i == selected_option_index
+        selected = i == state['toggl_index']
         set_option_tile_grid_selected(label_tile_grid, selected)
 
-    macropad.display.show(options_group)
-    macropad.display.refresh()
+    state['name'] = 'toggl'
 
-    return dict(name='command', options_group=options_group)
+def toggl_send_start():
+    global state
 
-def command(state):
-    options = state['options']
-    options_group = state['options_group']
-    selected_option_index = state['selected_option_index']
+    send_message(dict(
+        kind='startTimeEntry',
+        timeEntry=dict(
+            description=state['toggl_options'][state['toggl_index']],
+        ),
+    ))
+
+    message = wait_for_reply_animated(2, gradients_50['green'])
+    check_response(message, 2, colors_50['green'])
+
+    reset_activity_timer()
+    state['name'] = 'toggl'
+
+def toggl_send_continue():
+    global state
+
+    send_message(dict(
+        kind='continueTimeEntry',
+    ))
+
+    message = wait_for_reply_animated(2, gradients_50['green'])
+    check_response(message, 2, colors_50['green'])
+
+    reset_activity_timer()
+    state['name'] = 'toggl'
+
+def toggl_send_stop():
+    global state
+
+    send_message(dict(kind='stopTimeEntry'))
+
+    message = wait_for_reply_animated(1, gradients_50['red'])
+    check_response(message, 1, colors_50['red'])
+
+    reset_activity_timer()
+    state['name'] = 'toggl'
+
+def toggl_adjust_time():
+    global state
 
     clear_pixels()
-    macropad.pixels[0] = command_colors['load'].pack()
-    macropad.pixels[1] = command_colors['stop'].pack()
-    macropad.pixels[2] = command_colors['start'].pack()
-    macropad.pixels[3] = command_colors['adjust_time'].pack()
-    macropad.pixels[4] = command_colors['switch_bose'].pack()
-    macropad.pixels[5] = command_colors['switch_bose'].pack()
-    macropad.pixels[6] = command_colors['up'].pack()
-    macropad.pixels[7] = command_colors['up'].pack()
-    macropad.pixels[8] = command_colors['up'].pack()
-    macropad.pixels[9] = command_colors['shift'].pack()
-    macropad.pixels[10] = command_colors['up'].pack()
-    macropad.pixels[11] = command_colors['down'].pack()
-    macropad.pixels.show()
-
-    macropad.display.show(options_group)
-    macropad.display.refresh()
-
-    while True:
-        if time.time() - last_activity > 3:
-            return dict(
-                name='sleep',
-                selected_option_index=selected_option_index
-            )
-
-        get_message()
-        get_distance()
-        key_event = get_key_event()
-        selected_diff = get_encoder_diff()
-
-        potentiometer_diff = get_potentiometer_diff()
-        x_axis_diff = get_x_axis_diff()
-        y_axis_diff = get_y_axis_diff()
-
-        if potentiometer_diff != 0:
-            send_potentiometer(last_potentiometer)
-
-        if x_axis_diff != 0:
-            send_x_axis(last_x_axis)
-
-        if y_axis_diff != 0:
-            send_y_axis(last_y_axis)
-
-        if key_event and key_event.key_number == 8 and key_event.pressed:
-            selected_diff -= 1
-
-        if key_event and key_event.key_number == 11 and key_event.pressed:
-            selected_diff += 1
-
-        next_selected_option_index = (selected_option_index + selected_diff) % len(options) # TODO crash division 0
-
-        if key_event and key_event.key_number == 8 and key_event.pressed and key_state[9]:
-            next_selected_option_index = 0
-
-        if key_event and key_event.key_number == 11 and key_event.pressed and key_state[9]:
-            next_selected_option_index = len(options) - 1
-
-        if next_selected_option_index != selected_option_index:
-            set_option_tile_grid_selected(
-                options_group[selected_option_index],
-                False
-            )
-
-            set_option_tile_grid_selected(
-                options_group[next_selected_option_index],
-                True
-            )
-
-            selected_option_index = next_selected_option_index
-
-            page = int(selected_option_index / 4)
-            target_options_group_y = -page*64
-            display_options_group_y = options_group.y
-
-            macropad.display.refresh()
-
-            while options_group.y != target_options_group_y:
-                display_options_group_y += (
-                    (target_options_group_y - display_options_group_y) * 0.5
-                )
-                options_group.y = round(display_options_group_y)
-                macropad.display.refresh()
-
-        if key_event and key_event.key_number == 2 and key_event.pressed:
-            if key_state[9]:
-                return dict(
-                    name='send_continue',
-                    selected_option_index=selected_option_index
-                )
-            else:
-                return dict(
-                    name='send_start',
-                    selected_option_index=selected_option_index
-                )
-
-        if key_event and key_event.key_number == 1 and key_event.pressed:
-            return dict(
-                name='send_stop',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 0 and key_event.pressed:
-            return dict(
-                name='get_time_entries',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 3 and key_event.pressed:
-            return dict(
-                name='adjust_time',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 4 and key_event.pressed:
-            return dict(
-                name='send_switch_bose_mac',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 5 and key_event.pressed:
-            return dict(
-                name='send_switch_bose_fractal',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 6 and key_event.pressed:
-            return dict(
-                name='send_read_inbox',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 7 and key_event.pressed:
-            return dict(
-                name='send_clear_inbox',
-                selected_option_index=selected_option_index
-            )
-
-        if key_event and key_event.key_number == 10 and key_event.pressed:
-            return dict(
-                name='send_start_clock',
-                selected_option_index=selected_option_index
-            )
-
-def adjust_time(state):
-    clear_pixels()
-    macropad.pixels[1] = command_colors['stop'].pack()
-    macropad.pixels[2] = command_colors['start'].pack()
-    macropad.pixels[8] = command_colors['up'].pack()
-    macropad.pixels[9] = command_colors['shift'].pack()
-    macropad.pixels[11] = command_colors['down'].pack()
+    macropad.pixels[1] = colors_50['red'].pack()
+    macropad.pixels[2] = colors_50['green'].pack()
+    macropad.pixels[5] = colors_50['white'].pack()
+    macropad.pixels[8] = colors_50['white'].pack()
+    macropad.pixels[9] = colors_50['white'].pack()
     macropad.pixels.show()
 
     group = displayio.Group(
@@ -679,7 +730,7 @@ def adjust_time(state):
     )
 
     group.append(vectorio.Polygon(
-        pixel_shader=palettes['selected'],
+        pixel_shader=palettes['inverted'],
         points=[
             (0, 0),
             (-4, -4),
@@ -692,7 +743,7 @@ def adjust_time(state):
     scale_group = displayio.Group()
 
     scale_group.append(vectorio.Rectangle(
-        pixel_shader=palettes['selected'],
+        pixel_shader=palettes['inverted'],
         width=2,
         height=20,
         x=-1,
@@ -705,7 +756,7 @@ def adjust_time(state):
         height = 10 if i % 2 == 0 else 5
 
         scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['selected'],
+            pixel_shader=palettes['inverted'],
             width=1,
             height=height,
             x=i*20,
@@ -713,7 +764,7 @@ def adjust_time(state):
         ))
 
         scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['selected'],
+            pixel_shader=palettes['inverted'],
             width=1,
             height=height,
             x=-i*20,
@@ -737,23 +788,32 @@ def adjust_time(state):
     minutes = 0
     while True:
         key_event = get_key_event()
-        encoder_diff = get_encoder_diff()
 
-        if key_event and key_event.key_number == 8 and key_event.pressed and not key_state[9]:
-            minutes += 1
+        if key_event and key_event.pressed:
+            if key_state[9]:
+                if key_event.key_number == 5:
+                    minutes += 5
 
-        if key_event and key_event.key_number == 11 and key_event.pressed and not key_state[9]:
-            minutes -= 1
+                if key_event.key_number == 8:
+                    minutes -= 5
+            else:
+                if key_event.key_number == 5:
+                    minutes += 1
 
-        if key_event and key_event.key_number == 8 and key_event.pressed and key_state[9]:
-            minutes += 5
+                if key_event.key_number == 8:
+                    minutes -= 1
 
-        if key_event and key_event.key_number == 11 and key_event.pressed and key_state[9]:
-            minutes -= 5
+        minutes = min(max_adjustment, max(-max_adjustment, minutes))
 
-        minutes = min(max_adjustment, max(-max_adjustment,
-            minutes + encoder_diff
-        ))
+        if key_event and key_event.pressed:
+            if key_event.key_number == 2:
+                state['name'] = 'toggl_send_adjust_time'
+                state['toggl_adjust_minutes'] = minutes
+                return
+
+            if key_event.key_number == 1:
+                state['name'] = 'toggl'
+                return
 
         display_minutes += (minutes - display_minutes) * 0.3
 
@@ -762,57 +822,131 @@ def adjust_time(state):
 
         macropad.display.refresh()
 
-        if key_event and key_event.key_number == 2 and key_event.pressed:
-            return dict(name='send_adjust_time', adjust_minutes=minutes)
-
-        if key_event and key_event.key_number == 1 and key_event.pressed:
-            return dict(name='command')
-
-def send_continue(state):
-    send_message(dict(
-        kind='continueTimeEntry',
-    ))
-
-    message = wait_for_reply_animated(2, start_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[2] = command_colors['start'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def send_start(state):
-    options = state['options']
-    selected_option_index = state['selected_option_index']
+def toggl_send_adjust_time():
+    global state
 
     send_message(dict(
-        kind='startTimeEntry',
-        timeEntry=dict(
-            description=options[selected_option_index],
-        ),
+        kind='adjustTime',
+        minutes=state['toggl_adjust_minutes'],
     ))
 
-    message = wait_for_reply_animated(2, start_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[2] = command_colors['start'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
+    message = wait_for_reply_animated(3, gradients_50['light_blue'])
+    check_response(message, 3, colors_50['light_blue'])
 
     reset_activity_timer()
-    return dict(name='command')
+    state['name'] = 'toggl'
 
-def send_switch_bose_mac(state):
+def unicorn():
+    global state
+
+    clear_pixels()
+    macropad.pixels[0] = colors_50['light_blue'].pack()
+    macropad.pixels[1] = colors_50['red'].pack()
+    macropad.pixels[2] = colors_50['white'].pack()
+
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
+    group = displayio.Group()
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    while True:
+        if check_activity_timeout('unicorn'):
+            break
+
+        get_message()
+        key_event = get_key_event()
+
+        if key_event and key_event.pressed:
+            if key_state[11]:
+                state['name'] = 'apps'
+                state['apps_source_name'] = 'unicorn'
+                break
+
+            if key_event.key_number == 0:
+                state['name'] = 'unicorn_send_read_inbox'
+                break
+
+            if key_event.key_number == 1:
+                state['name'] = 'unicorn_send_clear_inbox'
+                break
+
+            if key_event.key_number == 2:
+                state['name'] = 'unicorn_send_start_clock'
+                break
+
+def unicorn_send_read_inbox():
+    global state
+
+    send_message(dict(kind='readInbox'))
+
+    message = wait_for_reply_animated(0, gradients_50['light_blue'])
+    check_response(message, 0, colors_50['light_blue'])
+
+    reset_activity_timer()
+    state['name'] = 'unicorn'
+
+def unicorn_send_clear_inbox():
+    global state
+
+    send_message(dict(kind='clearInbox'))
+
+    message = wait_for_reply_animated(1, gradients_50['red'])
+    check_response(message, 1, colors_50['red'])
+
+    reset_activity_timer()
+    state['name'] = 'unicorn'
+
+def unicorn_send_start_clock():
+    global state
+
+    send_message(dict(kind='startClock'))
+
+    message = wait_for_reply_animated(2, gradients_50['white'])
+    check_response(message, 2, colors_50['white'])
+
+    reset_activity_timer()
+    state['name'] = 'unicorn'
+
+def bluetooth():
+    global state
+
+    clear_pixels()
+    macropad.pixels[0] = colors_50['white'].pack()
+    macropad.pixels[1] = colors_50['gray'].pack()
+
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
+    group = displayio.Group()
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    while True:
+        if check_activity_timeout('bluetooth'):
+            break
+
+        get_message()
+        key_event = get_key_event()
+
+        if key_event and key_event.pressed:
+            if key_state[11]:
+                state['name'] = 'apps'
+                state['apps_source_name'] = 'bluetooth'
+                break
+
+            if key_event.key_number == 0:
+                state['name'] = 'bluetooth_send_switch_bose_mac'
+                break
+
+            if key_event.key_number == 1:
+                state['name'] = 'bluetooth_send_switch_bose_fractal'
+                break
+
+def bluetooth_send_switch_bose_mac():
+    global state
+
     send_message(dict(
         kind='switchBoseDevices',
         devices=[
@@ -821,21 +955,15 @@ def send_switch_bose_mac(state):
         ],
     ))
 
-    message = wait_for_reply_animated(4, switch_bose_gradient, 20000)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[4] = command_colors['switch_bose'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
+    message = wait_for_reply_animated(0, gradients_50['white'], 20000)
+    check_response(message, 0, colors_50['white'])
 
     reset_activity_timer()
-    return dict(name='command')
+    state['name'] = 'bluetooth'
 
-def send_switch_bose_fractal(state):
+def bluetooth_send_switch_bose_fractal():
+    global state
+
     send_message(dict(
         kind='switchBoseDevices',
         devices=[
@@ -844,186 +972,89 @@ def send_switch_bose_fractal(state):
         ],
     ))
 
-    message = wait_for_reply_animated(5, switch_bose_gradient, 20000)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[5] = command_colors['switch_bose'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
+    message = wait_for_reply_animated(1, gradients_50['gray'], 20000)
+    check_response(message, 1, colors_50['gray'])
 
     reset_activity_timer()
-    return dict(name='command')
+    state['name'] = 'bluetooth'
 
-def send_read_inbox(state):
-    send_message(dict(kind='readInbox'))
-
-    message = wait_for_reply_animated(6, read_inbox_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[6] = command_colors['read_inbox'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def send_clear_inbox(state):
-    send_message(dict(kind='clearInbox'))
-
-    message = wait_for_reply_animated(7, clear_inbox_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[7] = command_colors['clear_inbox'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def send_start_clock(state):
-    send_message(dict(kind='startClock'))
-
-    message = wait_for_reply_animated(10, start_clock_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[10] = command_colors['start_clock'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def send_stop(state):
-    send_message(dict(kind='stopTimeEntry'))
-
-    message = wait_for_reply_animated(1, stop_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[1] = command_colors['stop'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def send_adjust_time(state):
-    adjust_minutes = state['adjust_minutes']
-    send_message(dict(kind='adjustTime', minutes=adjust_minutes))
-
-    message = wait_for_reply_animated(3, adjust_time_gradient)
-
-    if not message or message['kind'] != 'success':
-        show_error()
-    else:
-        macropad.pixels[3] = command_colors['adjust_time'].pack()
-        macropad.pixels.show()
-        time.sleep(0.1)
-        clear_pixels()
-        time.sleep(0.1)
-
-    reset_activity_timer()
-    return dict(name='command')
-
-def get_time_entries(state):
-    send_message(dict(kind='getTimeEntries'))
-
-    entries = []
+def servo():
+    global state
 
     clear_pixels()
-    start = supervisor.ticks_ms()
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
     while True:
-        position = supervisor.ticks_ms() - start
+        get_message()
 
-        color = fancy.palette_lookup(load_gradient, position / 1000)
-        macropad.pixels[0] = color.pack()
-        macropad.pixels.show()
+        if get_x_axis_diff() != 0:
+            global last_x_axis
 
-        message = get_message()
+            send_x_axis(last_x_axis)
 
-        if message:
-            if message['kind'] == 'timeEntry':
-                entries.append(message['timeEntry']['description'])
-            else:
+        if get_y_axis_diff() != 0:
+            global last_y_axis
+
+            send_y_axis(last_y_axis)
+
+        key_event = get_key_event()
+
+        if key_event and key_event.pressed:
+            if key_state[11]:
+                state['name'] = 'apps'
+                state['apps_source_name'] = 'servo'
                 break
 
-        if position > 5000:
-            break
 
-    if not message or message['kind'] != 'success':
-        show_error()
-        reset_activity_timer()
-        return dict(name='command')
-
-    options = list(set(entries))
-    options.sort()
-
-    if not len(options):
-        options.append('')
-
-    selected_option_index = 0
-    clear_pixels()
-    reset_activity_timer()
-    return dict(
-        name='draw_options',
-        options=options,
-        selected_option_index=selected_option_index
-    )
-
-def set_option_tile_grid_selected(tile_grid, selected):
-    palette = palettes['selected' if selected else 'normal']
-    tile_grid.pixel_shader = palette
-
-send_heartbeat()
-display_wake()
-
-macropad.display.auto_refresh = False
-macropad.pixels.auto_write = False
-
-state_handlers = dict(
-    sleep=sleep,
-    get_time_entries=get_time_entries,
-    draw_options=draw_options,
-    command=command,
-    adjust_time=adjust_time,
-    send_continue=send_continue,
-    send_start=send_start,
-    send_stop=send_stop,
-    send_adjust_time=send_adjust_time,
-    send_switch_bose_mac=send_switch_bose_mac,
-    send_switch_bose_fractal=send_switch_bose_fractal,
-    send_read_inbox=send_read_inbox,
-    send_clear_inbox=send_clear_inbox,
-    send_start_clock=send_start_clock,
-)
-
-state = dict(
-    name='get_time_entries',
+initial_state = dict(
+    name='startup',
     options=[''],
     selected_option_index=0,
     options_group=displayio.Group(),
+
+    apps_source_name=None,
+
+    sleep_next_name=None,
+
+    toggl_index=0,
+    toggl_options=[''],
+    toggl_options_loaded=False,
+    toggl_options_group=displayio.Group(),
+    toggl_adjust_minutes=0,
 )
+
+state_handlers = dict(
+    startup=startup,
+    apps=apps,
+    sleep=sleep,
+
+    toggl=toggl,
+    toggl_get_time_entries=toggl_get_time_entries,
+    toggl_send_start=toggl_send_start,
+    toggl_send_stop=toggl_send_stop,
+    toggl_adjust_time=toggl_adjust_time,
+    toggl_send_adjust_time=toggl_send_adjust_time,
+    toggl_send_continue=toggl_send_continue,
+
+    unicorn=unicorn,
+    unicorn_send_read_inbox=unicorn_send_read_inbox,
+    unicorn_send_clear_inbox=unicorn_send_clear_inbox,
+    unicorn_send_start_clock=unicorn_send_start_clock,
+
+    bluetooth=bluetooth,
+    bluetooth_send_switch_bose_mac=bluetooth_send_switch_bose_mac,
+    bluetooth_send_switch_bose_fractal=bluetooth_send_switch_bose_fractal,
+
+    servo=servo,
+)
+
+display_wake()
+macropad.display.auto_refresh = False
+macropad.pixels.auto_write = False
+
+state = initial_state
 
 while True:
     print('#', state['name'])
-    result = state_handlers[state['name']](state)
-    state = dict(state, **result)
+    state_handlers[str(state['name'])]()

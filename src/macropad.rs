@@ -29,6 +29,22 @@ impl Actor for Macropad {
 
         let toggl_ref = crate::toggl::Toggl::spawn_link(&actor_ref, (broker_ref.clone(),)).await;
 
+        let tick_actor_ref = actor_ref.clone();
+
+        tick_actor_ref.tell(Tick).try_send().unwrap();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+
+            loop {
+                interval.tick().await;
+
+                if tick_actor_ref.tell(Tick).await.is_err() {
+                    break;
+                }
+            }
+        });
+
         #[cfg(feature = "pi")]
         {
             let serial_port =
@@ -62,6 +78,21 @@ impl Actor for Macropad {
     }
 }
 
+pub struct Tick;
+
+impl Message<Tick> for Macropad {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _message: Tick,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.send_message(serde_json::json!({ "kind": "heartbeat" }))
+            .await;
+    }
+}
+
 impl Message<StreamMessage<Result<String, tokio_util::codec::LinesCodecError>, (), ()>>
     for Macropad
 {
@@ -78,19 +109,39 @@ impl Message<StreamMessage<Result<String, tokio_util::codec::LinesCodecError>, (
                     return;
                 }
 
+                tracing::info!("<- {}", line);
+
                 if line.starts_with("p") {
                     return;
                 }
 
                 if line.starts_with("x") {
+                    let value = line["x".len()..].parse::<f32>().unwrap() / 32768.0;
+
+                    self.broker_ref
+                        .tell(broker::Publish {
+                            topic: "servo".parse().unwrap(),
+                            message: crate::BrokerMessage::ServoX((300.0 + value * 100.0) as u32),
+                        })
+                        .await
+                        .unwrap();
+
                     return;
                 }
 
                 if line.starts_with("y") {
+                    let value = line["y".len()..].parse::<f32>().unwrap() / 32768.0;
+
+                    self.broker_ref
+                        .tell(broker::Publish {
+                            topic: "servo".parse().unwrap(),
+                            message: crate::BrokerMessage::ServoY((300.0 + value * 100.0) as u32),
+                        })
+                        .await
+                        .unwrap();
+
                     return;
                 }
-
-                tracing::info!("<- {}", line);
 
                 let message: serde_json::Value = serde_json::from_str(&line).unwrap();
                 self.process_command(message).await;
@@ -173,11 +224,18 @@ impl Macropad {
             .await
             .map_err(|_| ())?;
 
-        for entry in result.as_array().unwrap() {
+        let descriptions: std::collections::HashSet<&str> = result
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["description"].as_str().unwrap())
+            .collect();
+
+        for description in descriptions {
             self.send_message(serde_json::json!({
                 "kind": "timeEntry",
                 "timeEntry": {
-                    "description": entry["description"].as_str().unwrap(),
+                    "description": description,
                 }
             }))
             .await;

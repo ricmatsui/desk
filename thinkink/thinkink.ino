@@ -30,7 +30,7 @@ const uint8_t PROGMEM EPD_COLORS[] = {
 Adafruit_IS31FL3741_QT_buffered matrix;
 TwoWire *i2c = &Wire;
 
-#define SERVO_HOLD true
+#define SERVO_HOLD false
 
 #define SERVO_X_PIN 4
 #define SERVO_Y_PIN 5
