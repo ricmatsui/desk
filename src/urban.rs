@@ -144,15 +144,12 @@ impl Message<Tick> for Urban {
                     .readings_queue
                     .iter()
                     .map(move |readings| {
-                        let timestamp = chrono::Utc
-                            .from_utc_datetime(
-                                &chrono::NaiveDateTime::parse_from_str(
-                                    readings["timestamp"].as_str().unwrap(),
-                                    "%Y-%m-%d %H:%M:%S",
-                                )
-                                .unwrap(),
-                            )
-                            .timestamp();
+                        let timestamp = chrono::DateTime::parse_from_rfc3339(
+                            readings["timestamp"].as_str().unwrap(),
+                        )
+                        .unwrap()
+                        .with_timezone(&chrono::Utc)
+                        .timestamp();
 
                         serde_json::json!({
                             "timestamp": timestamp,

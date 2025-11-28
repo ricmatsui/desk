@@ -37,10 +37,8 @@ impl Actor for Toggl {
             .build()
             .unwrap();
 
-        actor_ref.tell(GetCurrentTimeEntry).try_send().unwrap();
-
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
 
             loop {
                 interval.tick().await;
@@ -159,6 +157,15 @@ impl Message<StopTimeEntry> for Toggl {
 
         if current_time_entry.is_null() {
             self.current_time_entry = None;
+
+            self.broker_ref
+                .tell(broker::Publish {
+                    topic: "toggl".parse().unwrap(),
+                    message: crate::BrokerMessage::TimeEntryStopped,
+                })
+                .await
+                .map_err(|_| TogglError)?;
+
             return Ok(());
         }
 
@@ -219,7 +226,8 @@ impl Message<ContinueTimeEntry> for Toggl {
 
         let description = entry["description"].as_str().unwrap();
 
-        let time_entry = self.client
+        let time_entry = self
+            .client
             .post(
                 self.base_url
                     .join(&format!(
@@ -293,7 +301,8 @@ impl Message<AdjustTime> for Toggl {
                 .unwrap();
         let updated_start = current_start - chrono::Duration::minutes(message.minutes);
 
-        let time_entry = self.client
+        let time_entry = self
+            .client
             .put(
                 self.base_url
                     .join(&format!(

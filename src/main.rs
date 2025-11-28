@@ -23,6 +23,7 @@ pub enum BrokerMessage {
     TimeEntryStopped,
     TimeEntryTimeUpdated(TimeEntryTimeUpdated),
     CalendarEventUpcoming(CalendarEventUpcoming),
+    StartCountdown(i64),
     Message(Message),
     ReadInbox,
     ClearInbox,

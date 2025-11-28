@@ -62,6 +62,7 @@ pub fn weather_forecast(
         )
         .unwrap()
         .and_local_timezone(chrono::Local)
+        .latest()
         .unwrap();
 
         if time < start_of_day {

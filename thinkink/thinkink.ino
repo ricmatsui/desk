@@ -185,58 +185,7 @@ void loop() {
             }
         }
 
-        for (int i = 0; i < GRID_SIZE; i++) {
-            updated[i] = false;
-        }
-        
-        for (int y = 0; y < GRID_HEIGHT; y++) {
-            for (int x = 0; x < GRID_WIDTH; x++) {
-                int index = y * GRID_WIDTH + x;
-                uint16_t color = sandGrid[index];
-                
-                if (updated[index]) {
-                    continue;
-                }
-                
-                if (color == GREEN) {
-                    if (y < GRID_HEIGHT - 1) {
-                        int belowIndex = (y + 1) * GRID_WIDTH + x;
-                        if (sandGrid[belowIndex] == BLACK) {
-                            if (random(0, 10000) <= 9000) {
-                                sandGrid[index] = BLACK;
-                                sandGrid[belowIndex] = GREEN;
-                                updated[belowIndex] = true;
-                                continue;
-                            }
-                        }
-                    }
-                    
-                    if (x > 0) {
-                        int leftIndex = y * GRID_WIDTH + (x - 1);
-                        if (sandGrid[leftIndex] == BLACK) {
-                            if (random(0, 10000) <= 1) {
-                                sandGrid[index] = BLACK;
-                                sandGrid[leftIndex] = GREEN;
-                                updated[leftIndex] = true;
-                                continue;
-                            }
-                        }
-                    }
-                    
-                    if (x < GRID_WIDTH - 1) {
-                        int rightIndex = y * GRID_WIDTH + (x + 1);
-                        if (sandGrid[rightIndex] == BLACK) {
-                            if (random(0, 10000) <= 1) {
-                                sandGrid[index] = BLACK;
-                                sandGrid[rightIndex] = GREEN;
-                                updated[rightIndex] = true;
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        updateSand(true);
         
         unsigned long currentTime = millis();
 
@@ -330,6 +279,45 @@ void loop() {
                 }
 
                 if (message["kind"] == "stopAnimation") {
+                    while (true) {
+                        int elapsedTime = micros() - startTime;
+                        if (elapsedTime < 16666) {
+                            delayMicroseconds(max(0, 16666 - elapsedTime));
+                        }
+                        startTime = micros();
+
+                        slowDown++;
+
+                        if (slowDown > 10) {
+                            slowDown = 0;
+
+                            int filledCount = 0;
+                            for (int i = 0; i < GRID_SIZE; i++) {
+                                if (sandGrid[i] == GREEN) {
+                                    filledCount++;
+                                }
+                            }
+                            
+                            if (filledCount == 0) {
+                                break;
+                            }
+
+                            updateSand(false);
+
+                            matrix.fill(0);
+
+                            for (int i = 0; i < GRID_SIZE; i++) {
+                                int x = i % GRID_WIDTH;
+                                int y = i / GRID_WIDTH;
+                                if (sandGrid[i] == GREEN) {
+                                    matrix.drawPixel(x, y, GREEN);
+                                }
+                            }
+                            
+                            matrix.show();
+                        }
+                    }
+
                     matrix.fill(0);
                     matrix.show();
                     matrix.enable(false);
@@ -431,6 +419,70 @@ void loop() {
 
         if (!SERVO_HOLD) {
             pwm.setPWM(SERVO_Y_PIN, 0, servoYCurrentValue);
+        }
+    }
+}
+
+void updateSand(bool floorEnabled) {
+    for (int i = 0; i < GRID_SIZE; i++) {
+        updated[i] = false;
+    }
+    
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            int index = y * GRID_WIDTH + x;
+            uint16_t color = sandGrid[index];
+            
+            if (updated[index]) {
+                continue;
+            }
+            
+            if (color == GREEN) {
+                if (!floorEnabled) {
+                    if (y == GRID_HEIGHT - 1) {
+                        if (random(0, 10000) <= 9000) {
+                            sandGrid[index] = BLACK;
+                            continue;
+                        }
+                    }
+                }
+
+                if (y < GRID_HEIGHT - 1) {
+                    int belowIndex = (y + 1) * GRID_WIDTH + x;
+                    if (sandGrid[belowIndex] == BLACK) {
+                        if (random(0, 10000) <= 9000) {
+                            sandGrid[index] = BLACK;
+                            sandGrid[belowIndex] = GREEN;
+                            updated[belowIndex] = true;
+                            continue;
+                        }
+                    }
+                }
+                
+                if (x > 0) {
+                    int leftIndex = y * GRID_WIDTH + (x - 1);
+                    if (sandGrid[leftIndex] == BLACK) {
+                        if (random(0, 10000) <= 1) {
+                            sandGrid[index] = BLACK;
+                            sandGrid[leftIndex] = GREEN;
+                            updated[leftIndex] = true;
+                            continue;
+                        }
+                    }
+                }
+                
+                if (x < GRID_WIDTH - 1) {
+                    int rightIndex = y * GRID_WIDTH + (x + 1);
+                    if (sandGrid[rightIndex] == BLACK) {
+                        if (random(0, 10000) <= 1) {
+                            sandGrid[index] = BLACK;
+                            sandGrid[rightIndex] = GREEN;
+                            updated[rightIndex] = true;
+                            continue;
+                        }
+                    }
+                }
+            }
         }
     }
 }

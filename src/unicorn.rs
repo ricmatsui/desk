@@ -39,6 +39,14 @@ impl Actor for Unicorn {
             .await
             .unwrap();
 
+        broker_ref
+            .tell(broker::Subscribe {
+                topic: "countdown".parse().unwrap(),
+                recipient: actor_ref.clone().recipient(),
+            })
+            .await
+            .unwrap();
+
         Ok(Self {
             client: reqwest::Client::new(),
             base_url: reqwest::Url::parse(&std::env::var("UNICORN_BASE_URL").unwrap()).unwrap(),
@@ -65,6 +73,18 @@ impl Message<crate::BrokerMessage> for Unicorn {
                 self.client
                     .get(self.base_url.join("/countdown").unwrap())
                     .query(&[("seconds", seconds.to_string())])
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+            }
+            crate::BrokerMessage::StartCountdown(minutes) => {
+                tracing::info!("unicorn message: {:?}", minutes);
+
+                self.client
+                    .get(self.base_url.join("/countdown").unwrap())
+                    .query(&[("seconds", (minutes * 60).to_string())])
                     .send()
                     .await
                     .unwrap()

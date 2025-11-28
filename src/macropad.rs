@@ -172,6 +172,7 @@ impl Macropad {
             "readInbox" => self.read_inbox().await,
             "clearInbox" => self.clear_inbox().await,
             "startClock" => self.start_clock().await,
+            "startCountdown" => self.start_countdown(message).await,
             _ => panic!("Unknown message kind: {}", kind),
         };
 
@@ -280,6 +281,18 @@ impl Macropad {
         self.toggl_ref
             .ask(toggl::AdjustTime {
                 minutes: message["minutes"].as_i64().unwrap(),
+            })
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    async fn start_countdown(&mut self, message: serde_json::Value) -> Result<(), ()> {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "countdown".parse().unwrap(),
+                message: crate::BrokerMessage::StartCountdown(message["minutes"].as_i64().unwrap()),
             })
             .await
             .map_err(|_| ())?;
