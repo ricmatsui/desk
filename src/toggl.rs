@@ -72,6 +72,7 @@ impl Message<GetTimeEntries> for Toggl {
         _message: GetTimeEntries,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Get time entries");
         let result = self
             .client
             .get(self.base_url.join("/api/v9/me/time_entries").unwrap())
@@ -97,6 +98,7 @@ impl Message<StartTimeEntry> for Toggl {
         message: StartTimeEntry,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Start time entry");
         let time_entry = self
             .client
             .post(
@@ -150,6 +152,7 @@ impl Message<StopTimeEntry> for Toggl {
         _message: StopTimeEntry,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Stop time entry");
         let current_time_entry = self
             .get_current_time_entry()
             .await
@@ -210,6 +213,7 @@ impl Message<ContinueTimeEntry> for Toggl {
         _message: ContinueTimeEntry,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Continue time entry");
         let result = self
             .client
             .get(self.base_url.join("/api/v9/me/time_entries").unwrap())
@@ -287,6 +291,7 @@ impl Message<AdjustTime> for Toggl {
         message: AdjustTime,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Adjust time: {:?}", message.minutes);
         let current_time_entry = self
             .get_current_time_entry()
             .await
@@ -350,6 +355,7 @@ impl Message<GetCurrentTimeEntry> for Toggl {
         _message: GetCurrentTimeEntry,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        tracing::info!("Get current time entry");
         let new_time_entry = self
             .get_current_time_entry()
             .await
@@ -359,8 +365,9 @@ impl Message<GetCurrentTimeEntry> for Toggl {
 
         if self.current_time_entry.is_none() {
             if new_time_entry.is_null() {
-                // Nothing to do
+                tracing::info!("Nothing to do");
             } else {
+                tracing::info!("Switching to new time entry");
                 self.broker_ref
                     .tell(broker::Publish {
                         topic: "toggl".parse().unwrap(),
@@ -392,6 +399,7 @@ impl Message<GetCurrentTimeEntry> for Toggl {
             }
         } else {
             if new_time_entry.is_null() {
+                tracing::info!("Stopping time entry");
                 self.broker_ref
                     .tell(broker::Publish {
                         topic: "toggl".parse().unwrap(),
@@ -400,6 +408,7 @@ impl Message<GetCurrentTimeEntry> for Toggl {
                     .await
                     .map_err(|_| TogglError)?;
             } else {
+                tracing::info!("Updating time entry");
                 let current_time_entry = self.current_time_entry.as_ref().unwrap();
 
                 let current_start = chrono::DateTime::parse_from_rfc3339(

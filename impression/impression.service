@@ -1,0 +1,13 @@
+[Unit]
+Description=Impression
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/impression
+ExecStart=/home/pi/.local/bin/poetry run gunicorn --bind=0.0.0.0:5000 --timeout 120 impression:app
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

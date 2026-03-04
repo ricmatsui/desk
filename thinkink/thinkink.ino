@@ -81,18 +81,60 @@ unsigned long startTime = 0;
 #define GREEN    0x07E0
 #define BLUE     0x001F
 #define WHITE    0xFFFF
+#define RED      0xF800
+#define YELLOW   0xFFE0
+#define ORANGE   0xFD20
+#define MAGENTA  0xF81F
+#define INDIGO   0x4810
+#define VIOLET   0x881F
+#define CYAN     0x07FF
 #define BLACK    0x0000
+
+uint16_t colors[] = {
+    GREEN,
+    BLUE,
+    RED,
+    YELLOW,
+    ORANGE,
+    MAGENTA,
+    INDIGO,
+    VIOLET,
+    CYAN,
+};
 
 #define GRID_WIDTH 13
 #define GRID_HEIGHT 9
 #define GRID_SIZE (GRID_WIDTH * GRID_HEIGHT)
 
-uint16_t sandGrid[GRID_SIZE];
-bool updated[GRID_SIZE];
-unsigned long lastAdditionTime = 0;
-const unsigned long ADDITION_INTERVAL = 60 * 1000;
 int slowDown = 0;
 bool animating = false;
+bool fireworksEnabled = false;
+
+const unsigned long SAND_ADDITION_INTERVAL = 60 * 1000;
+
+struct Sand {
+    uint16_t grid[GRID_SIZE];
+    bool updated[GRID_SIZE];
+    unsigned long lastAdditionTime = 0;
+};
+
+struct UpdateSandOptions {
+    bool addEnabled;
+    bool floorEnabled;
+};
+
+struct Firework {
+    int x;
+    int y;
+    int life;
+    int delay;
+    uint16_t color;
+};
+
+#define FIREWORKS_COUNT 2
+
+Sand sand = {0};
+Firework fireworks[FIREWORKS_COUNT] = {0};
 
 void setup() {
     display.begin(THINKINK_GRAYSCALE4);
@@ -154,12 +196,6 @@ char messageBuffer[1024];
 bool messageReady = false;
 int messageBufferIndex = 0;
 
-void resetSand() {
-    for (int i = 0; i < GRID_SIZE; i++) {
-        sandGrid[i] = BLACK;
-    }
-}
-
 void loop() {
     int elapsedTime = micros() - startTime;
     if (elapsedTime < 16666) {
@@ -169,52 +205,20 @@ void loop() {
 
     slowDown++;
 
+    if (fireworksEnabled) {
+        updateFireworks();
+        drawFireworks();
+    }
+
     if (slowDown > 10) {
         slowDown = 0;
 
-        int emptyCount = 0;
-        for (int i = 0; i < GRID_SIZE; i++) {
-            if (sandGrid[i] == BLACK) {
-                emptyCount++;
-            }
-        }
+        updateSand({
+            .addEnabled = animating,
+            .floorEnabled = true
+        });
         
-        if (emptyCount < 13) {
-            for (int i = 0; i < GRID_SIZE; i++) {
-                sandGrid[i] = BLACK;
-            }
-        }
-
-        updateSand(true);
-        
-        unsigned long currentTime = millis();
-
-        if (lastAdditionTime == 0 || currentTime - lastAdditionTime >= ADDITION_INTERVAL) {
-            int y = 0;
-            int x = random(0, GRID_WIDTH);
-            
-            for (int attempts = 0; attempts < GRID_WIDTH; attempts++) {
-                int index = y * GRID_WIDTH + (x + attempts) % GRID_WIDTH;
-                if (sandGrid[index] == BLACK) {
-                    sandGrid[index] = GREEN;
-                    break;
-                }
-            }
-            
-            lastAdditionTime = currentTime;
-        }
-        
-        matrix.fill(0);
-
-        for (int i = 0; i < GRID_SIZE; i++) {
-            int x = i % GRID_WIDTH;
-            int y = i / GRID_WIDTH;
-            if (sandGrid[i] == GREEN) {
-                matrix.drawPixel(x, y, GREEN);
-            }
-        }
-        
-        matrix.show();
+        drawSand();
 
         if (currentValue < targetValue) {
             currentValue = min(targetValue, currentValue + speed);
@@ -269,12 +273,22 @@ void loop() {
                     servoXSpeed = message["speed"];
                 }
 
+                if (message["kind"] == "startFireworks") {
+                    matrix.setGlobalCurrent(0x06);
+                    resetFireworks();
+                    enableMatrix();
+                    fireworksEnabled = true;
+                }
+
+                if (message["kind"] == "stopFireworks") {
+                    disableMatrix();
+                    matrix.setGlobalCurrent(0x01);
+                    fireworksEnabled = false;
+                }
+
                 if (message["kind"] == "startAnimation") {
                     resetSand();
-                    lastAdditionTime = 0;
-                    matrix.fill(0);
-                    matrix.show();
-                    matrix.enable(true);
+                    enableMatrix();
                     animating = true;
                 }
 
@@ -291,78 +305,27 @@ void loop() {
                         if (slowDown > 10) {
                             slowDown = 0;
 
-                            int filledCount = 0;
-                            for (int i = 0; i < GRID_SIZE; i++) {
-                                if (sandGrid[i] == GREEN) {
-                                    filledCount++;
-                                }
-                            }
-                            
-                            if (filledCount == 0) {
+                            if (!hasSand()) {
                                 break;
                             }
 
-                            updateSand(false);
+                            updateSand({
+                                .addEnabled = false,
+                                .floorEnabled = false
+                            });
 
-                            matrix.fill(0);
-
-                            for (int i = 0; i < GRID_SIZE; i++) {
-                                int x = i % GRID_WIDTH;
-                                int y = i / GRID_WIDTH;
-                                if (sandGrid[i] == GREEN) {
-                                    matrix.drawPixel(x, y, GREEN);
-                                }
-                            }
-                            
-                            matrix.show();
+                            drawSand();
                         }
                     }
 
-                    matrix.fill(0);
-                    matrix.show();
-                    matrix.enable(false);
+                    disableMatrix();
                     animating = false;
                 }
 
                 if (message["kind"] == "adjustAnimationTime") {
                     int minutes = message["minutes"];
 
-                    bool remove = minutes < 0;
-                    int count = abs(minutes);
-
-                    if (count > 0) {
-                        for (int y = 0; y < GRID_HEIGHT; y++) {
-                            int indexes[GRID_WIDTH];
-                            initArray(indexes, GRID_WIDTH);
-                            shuffle(indexes, GRID_WIDTH);
-                            
-                            for (int i = 0; i < GRID_WIDTH; i++) {
-                                int index = y * GRID_WIDTH + indexes[i];
-
-                                if (remove) {
-                                    if (sandGrid[index] == GREEN) {
-                                        sandGrid[index] = BLACK;
-
-                                        count--;
-                                    }
-                                } else {
-                                    if (sandGrid[index] == BLACK) {
-                                        sandGrid[index] = GREEN;
-
-                                        count--;
-                                    }
-                                }
-
-                                if (count == 0) {
-                                    break;
-                                }
-                            }
-
-                            if (count == 0) {
-                                break;
-                            }
-                        }
-                    }
+                    adjustSand(minutes);
                 }
 
                 if (message["kind"] == "displayData") {
@@ -423,25 +386,59 @@ void loop() {
     }
 }
 
-void updateSand(bool floorEnabled) {
+void resetSand() {
+    sand.lastAdditionTime = 0;
+
     for (int i = 0; i < GRID_SIZE; i++) {
-        updated[i] = false;
+        sand.grid[i] = BLACK;
+    }
+}
+
+bool hasSand() {
+    int filledCount = 0;
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        if (sand.grid[i] == GREEN) {
+            filledCount++;
+        }
+    }
+
+    return filledCount > 0;
+}
+
+void updateSand(UpdateSandOptions options) {
+    int emptyCount = 0;
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        if (sand.grid[i] == BLACK) {
+            emptyCount++;
+        }
+    }
+    
+    if (emptyCount < 13) {
+        for (int i = 0; i < GRID_SIZE; i++) {
+            sand.grid[i] = BLACK;
+        }
+    }
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        sand.updated[i] = false;
     }
     
     for (int y = 0; y < GRID_HEIGHT; y++) {
         for (int x = 0; x < GRID_WIDTH; x++) {
             int index = y * GRID_WIDTH + x;
-            uint16_t color = sandGrid[index];
+            uint16_t color = sand.grid[index];
             
-            if (updated[index]) {
+            if (sand.updated[index]) {
                 continue;
             }
             
             if (color == GREEN) {
-                if (!floorEnabled) {
+                if (!options.floorEnabled) {
                     if (y == GRID_HEIGHT - 1) {
                         if (random(0, 10000) <= 9000) {
-                            sandGrid[index] = BLACK;
+                            sand.grid[index] = BLACK;
                             continue;
                         }
                     }
@@ -449,11 +446,11 @@ void updateSand(bool floorEnabled) {
 
                 if (y < GRID_HEIGHT - 1) {
                     int belowIndex = (y + 1) * GRID_WIDTH + x;
-                    if (sandGrid[belowIndex] == BLACK) {
+                    if (sand.grid[belowIndex] == BLACK) {
                         if (random(0, 10000) <= 9000) {
-                            sandGrid[index] = BLACK;
-                            sandGrid[belowIndex] = GREEN;
-                            updated[belowIndex] = true;
+                            sand.grid[index] = BLACK;
+                            sand.grid[belowIndex] = GREEN;
+                            sand.updated[belowIndex] = true;
                             continue;
                         }
                     }
@@ -461,11 +458,11 @@ void updateSand(bool floorEnabled) {
                 
                 if (x > 0) {
                     int leftIndex = y * GRID_WIDTH + (x - 1);
-                    if (sandGrid[leftIndex] == BLACK) {
+                    if (sand.grid[leftIndex] == BLACK) {
                         if (random(0, 10000) <= 1) {
-                            sandGrid[index] = BLACK;
-                            sandGrid[leftIndex] = GREEN;
-                            updated[leftIndex] = true;
+                            sand.grid[index] = BLACK;
+                            sand.grid[leftIndex] = GREEN;
+                            sand.updated[leftIndex] = true;
                             continue;
                         }
                     }
@@ -473,11 +470,11 @@ void updateSand(bool floorEnabled) {
                 
                 if (x < GRID_WIDTH - 1) {
                     int rightIndex = y * GRID_WIDTH + (x + 1);
-                    if (sandGrid[rightIndex] == BLACK) {
+                    if (sand.grid[rightIndex] == BLACK) {
                         if (random(0, 10000) <= 1) {
-                            sandGrid[index] = BLACK;
-                            sandGrid[rightIndex] = GREEN;
-                            updated[rightIndex] = true;
+                            sand.grid[index] = BLACK;
+                            sand.grid[rightIndex] = GREEN;
+                            sand.updated[rightIndex] = true;
                             continue;
                         }
                     }
@@ -485,6 +482,158 @@ void updateSand(bool floorEnabled) {
             }
         }
     }
+
+    if (options.addEnabled) {
+        unsigned long currentTime = millis();
+
+        if (sand.lastAdditionTime == 0
+            || currentTime - sand.lastAdditionTime >= SAND_ADDITION_INTERVAL) {
+            int y = 0;
+            int x = random(0, GRID_WIDTH);
+            
+            for (int attempts = 0; attempts < GRID_WIDTH; attempts++) {
+                int index = y * GRID_WIDTH + (x + attempts) % GRID_WIDTH;
+                if (sand.grid[index] == BLACK) {
+                    sand.grid[index] = GREEN;
+                    break;
+                }
+            }
+            
+            sand.lastAdditionTime = currentTime;
+        }
+    }
+}
+
+void adjustSand(int count) {
+    bool remove = count < 0;
+    int remainingOperations = abs(count);
+
+    if (remainingOperations == 0) {
+        return;
+    }
+
+    for (int y = 0; y < GRID_HEIGHT; y++) {
+        int indexes[GRID_WIDTH];
+        initArray(indexes, GRID_WIDTH);
+        shuffle(indexes, GRID_WIDTH);
+        
+        for (int i = 0; i < GRID_WIDTH; i++) {
+            int index = y * GRID_WIDTH + indexes[i];
+
+            if (remove) {
+                if (sand.grid[index] == GREEN) {
+                    sand.grid[index] = BLACK;
+
+                    remainingOperations--;
+                }
+            } else {
+                if (sand.grid[index] == BLACK) {
+                    sand.grid[index] = GREEN;
+
+                    remainingOperations--;
+                }
+            }
+
+            if (remainingOperations == 0) {
+                break;
+            }
+        }
+
+        if (remainingOperations == 0) {
+            break;
+        }
+    }
+}
+
+void drawSand() {
+    matrix.fill(0);
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        int x = i % GRID_WIDTH;
+        int y = i / GRID_WIDTH;
+        if (sand.grid[i] == GREEN) {
+            matrix.drawPixel(x, y, GREEN);
+        }
+    }
+    
+    matrix.show();
+}
+
+void resetFireworks() {
+    for (int i = 0; i < FIREWORKS_COUNT; i++) {
+        fireworks[i].delay = (i * 1000 / FIREWORKS_COUNT);
+        fireworks[i].life = 0;
+    }
+}
+
+void updateFireworks() {
+    for (int i = 0; i < FIREWORKS_COUNT; i++) {
+        if (fireworks[i].delay > 0) {
+            fireworks[i].delay--;
+        } else if (fireworks[i].delay == 0) {
+            fireworks[i].delay = -1;
+            fireworks[i].x = random(0, GRID_WIDTH);
+            fireworks[i].y = random(0, GRID_HEIGHT);
+            fireworks[i].life = 20;
+            fireworks[i].color = colors[random(0, sizeof(colors) / sizeof(colors[0]))];
+        } else if (fireworks[i].life > 0) {
+            fireworks[i].life--;
+        } else if (fireworks[i].life == 0) {
+            fireworks[i].delay = -1;
+            fireworks[i].x = random(0, GRID_WIDTH);
+            fireworks[i].y = random(0, GRID_HEIGHT);
+            fireworks[i].life = 20;
+            fireworks[i].color = colors[random(0, sizeof(colors) / sizeof(colors[0]))];
+        }
+    }
+}
+
+void drawFireworks() {
+    matrix.fill(0);
+
+    for (int i = 0; i < FIREWORKS_COUNT; i++) {
+        if (fireworks[i].life <= 0) {
+            continue;
+        }
+
+        int radius = (20 - fireworks[i].life) / 4;
+
+        for (int angle = 0; angle < 360; angle += 45) {
+            int x = fireworks[i].x + radius * cos(angle * PI / 180);
+            int y = fireworks[i].y + radius * sin(angle * PI / 180);
+
+            if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
+                uint16_t colors[] = {RED, YELLOW, ORANGE, MAGENTA, CYAN};
+                matrix.drawPixel(x, y, fireworks[i].color);
+            }
+        }
+    }
+    
+    matrix.show();
+}
+
+void drawColors() {
+    matrix.fill(0);
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        int x = i % GRID_WIDTH;
+        int y = i / GRID_WIDTH;
+        matrix.drawPixel(x, y, colors[i % (sizeof(colors) / sizeof(colors[0]))]);
+    }
+    
+    matrix.show();
+}
+
+void enableMatrix() {
+    matrix.fill(0);
+    matrix.show();
+    matrix.enable(true);
+}
+
+void disableMatrix() {
+    matrix.fill(0);
+    matrix.show();
+    matrix.enable(false);
 }
 
 void initArray(int *array, int size) {

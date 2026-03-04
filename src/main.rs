@@ -16,6 +16,7 @@ mod thinkink;
 mod toggl;
 mod unicorn;
 mod urban;
+mod fireworks;
 
 #[derive(Debug, Clone)]
 pub enum BrokerMessage {
@@ -24,12 +25,15 @@ pub enum BrokerMessage {
     TimeEntryTimeUpdated(TimeEntryTimeUpdated),
     CalendarEventUpcoming(CalendarEventUpcoming),
     StartCountdown(i64),
+    StartTimestampCountdown(i64),
     Message(Message),
     ReadInbox,
     ClearInbox,
     StartClock,
     ServoX(u32),
     ServoY(u32),
+    StartFireworks,
+    StopFireworks,
 }
 
 #[derive(Debug, Clone)]
@@ -143,6 +147,7 @@ async fn tokio_main(
         Box::new(restarting!(unicorn::Unicorn, (broker_ref,))),
         Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
         Box::new(restarting!(urban::Urban, ())),
+        Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
     ];
 
     for actor_ref in actor_refs {

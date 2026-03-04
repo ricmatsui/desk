@@ -54,7 +54,7 @@
         - glslcc
         - shaders
 
-- name: deploy
+- name: deploy hub
   gather_facts: false
   hosts: hub
   roles:
@@ -69,3 +69,10 @@
 
     - role: unicorn
       tags: unicorn
+
+- name: deploy impression
+  gather_facts: false
+  hosts: impression
+  roles:
+    - role: impression
+      tags: impression

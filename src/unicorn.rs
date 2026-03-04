@@ -91,6 +91,20 @@ impl Message<crate::BrokerMessage> for Unicorn {
                     .error_for_status()
                     .unwrap();
             }
+
+            crate::BrokerMessage::StartTimestampCountdown(timestamp) => {
+                tracing::info!("unicorn message: {:?}", timestamp);
+
+                self.client
+                    .get(self.base_url.join("/countdown").unwrap())
+                    .query(&[("timestamp", timestamp.to_string())])
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+            }
+
             crate::BrokerMessage::Message(message) => {
                 tracing::info!("unicorn message: {:?}", message);
 

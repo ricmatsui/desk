@@ -14,7 +14,7 @@ pub fn weather_forecast(
         reqwest::header::HeaderValue::from_static("application/json"),
     );
 
-    let response = client
+    let request = client
         .get("https://api.open-meteo.com/v1/forecast")
         .query(&[
             ("latitude", std::env::var("LATITUDE").unwrap()),
@@ -29,7 +29,10 @@ pub fn weather_forecast(
             ("forecast_days", "2"),
         ])
         .headers(headers)
-        .send()?
+        .build()?;
+
+    let response = client
+        .execute(request)?
         .error_for_status()?
         .json::<serde_json::Value>()?;
 
@@ -39,9 +42,6 @@ pub fn weather_forecast(
         .len();
 
     let start_of_day = now.with_time(chrono::NaiveTime::MIN).unwrap();
-    let tomorrow = start_of_day + chrono::Duration::days(1);
-    let mid_day = start_of_day + chrono::Duration::hours(12);
-    let tomorrow_mid_day = start_of_day + chrono::Duration::days(1) + chrono::Duration::hours(12);
 
     let mut hot_times = vec![];
     let mut hot_start_index = None;
@@ -71,8 +71,7 @@ pub fn weather_forecast(
 
         let current_temperature = response["hourly"]["temperature_2m"][i].as_f64().unwrap();
 
-        if hot_start_index.is_none() && current_temperature > hot_start_threshold && time < tomorrow
-        {
+        if hot_start_index.is_none() && current_temperature > hot_start_threshold {
             hot_start_index = Some(i);
         }
 
@@ -96,11 +95,7 @@ pub fn weather_forecast(
             hot_start_index = None;
         }
 
-        if cold_start_index.is_none()
-            && current_temperature < cold_start_threshold
-            && time > mid_day
-            && time < tomorrow_mid_day
-        {
+        if cold_start_index.is_none() && current_temperature < cold_start_threshold {
             cold_start_index = Some(i);
         }
 
@@ -157,7 +152,7 @@ pub fn weather_forecast(
             Color::WHITE,
         );
 
-        let start_string = start.format("%-I%P").to_string();
+        let start_string = start.format("%a %-I%P").to_string();
         let end_string = end.format("%-I%P").to_string();
         image.draw_text_ex(
             &font_solid,
@@ -183,7 +178,7 @@ pub fn weather_forecast(
             Color::WHITE,
         );
 
-        let start_string = start.format("%-I%P").to_string();
+        let start_string = start.format("%a %-I%P").to_string();
         let end_string = end.format("%-I%P").to_string();
         image.draw_text_ex(
             &font_solid,

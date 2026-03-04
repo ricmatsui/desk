@@ -167,8 +167,19 @@ def stop(request):
 
 @server.route("/countdown", methods=["GET"])
 async def countdown(request):
-    seconds = int(request.args['seconds'])
-    timestamp = time.time() + seconds
+    if 'seconds' in request.args:
+        seconds = int(request.args['seconds'])
+        timestamp = time.time() + seconds
+    else:
+        while True:
+            try:
+                ntptime.settime()
+                break
+            except:
+                time.sleep(1)
+                pass
+        timestamp = int(request.args['timestamp'])
+
     enqueue_animation(countdown_animation(timestamp), priority=2)
     return 'started'
 

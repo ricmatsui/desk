@@ -1,0 +1,71 @@
+---
+
+- name: install poetry
+  ansible.builtin.shell:
+    cmd: >
+      curl -sSL https://install.python-poetry.org
+      | python -
+    creates: /home/{{ ansible_user }}/.local/bin/poetry
+  become_user: pi
+
+- name: create directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: pi
+    group: pi
+    state: directory
+  loop:
+    - /opt/impression
+    - /opt/impression/templates
+
+- name: copy project files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/impression/{{ item }}"
+    dest: "/opt/impression/{{ item }}"
+  loop:
+    - pyproject.toml
+    - poetry.toml
+    - poetry.lock
+  register: copy_project_files
+  become_user: pi
+  notify: impression_restart
+
+- name: install dependencies
+  ansible.builtin.shell:
+    cmd: /home/pi/.local/bin/poetry install
+    chdir: /opt/impression
+  become_user: pi
+  when: copy_project_files is changed
+
+- name: copy script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/impression/{{ item }}"
+    dest: "/opt/impression/{{ item }}"
+  loop:
+    - impression.py
+  become_user: pi
+  tags: impression_code
+  notify: impression_restart
+
+- name: copy templates
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/impression/templates/{{ item }}"
+    dest: "/opt/impression/templates/{{ item }}"
+  loop:
+    - index.html
+  become_user: pi
+  tags: impression_templates
+  notify: impression_restart
+
+- name: install service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/impression/impression.service"
+    dest: /etc/systemd/system
+    owner: root
+    group: root
+  notify: impression_restart
+
+- name: enable service
+  ansible.builtin.systemd:
+    name: impression
+    enabled: true

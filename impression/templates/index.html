@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Impression</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: sans-serif;
+            }
+
+            .upload-button {
+                padding: 10vw;
+                margin: 10vw;
+
+                border: 1px solid black;
+                border-radius: 5px;
+
+                display: block;
+                text-align: center;
+                cursor: pointer;
+
+                font-size: 10vw;
+            }
+
+            .upload-button:active {
+                background-color: black;
+                color: white;
+            }
+
+            .loading {
+                font-size: 10vw;
+            }
+        </style>
+	</head>
+	<body>
+        <div class='form'>
+            <form action='/' method='POST' enctype="multipart/form-data">
+                <input id='image' name='image' type='file' hidden>
+                <label class='upload-button' for='image'>Upload</label>
+            </form>
+        </div>
+        <div class='loading' style='display: none'>
+            Uploading...<br><progress></progress>
+        </div>
+
+        <script>
+            const imageInput = document.querySelector('input[name="image"]');
+            const form = document.querySelector('form');
+
+            imageInput.addEventListener('change', () => {
+                if (imageInput.files.length > 0) {
+                    form.submit();
+                    document.querySelector('.form').style.display = 'none';
+                    document.querySelector('.loading').style.display = 'block';
+                }
+            });
+        </script>
+	</body>
+</html>
