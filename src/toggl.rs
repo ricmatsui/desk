@@ -37,6 +37,8 @@ impl Actor for Toggl {
             .build()
             .unwrap();
 
+        tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
 

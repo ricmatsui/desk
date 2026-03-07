@@ -173,6 +173,7 @@ impl Macropad {
             "clearInbox" => self.clear_inbox().await,
             "startClock" => self.start_clock().await,
             "startCountdown" => self.start_countdown(message).await,
+            "cancelAnimation" => self.cancel_animation().await,
             _ => panic!("Unknown message kind: {}", kind),
         };
 
@@ -293,6 +294,18 @@ impl Macropad {
             .tell(broker::Publish {
                 topic: "countdown".parse().unwrap(),
                 message: crate::BrokerMessage::StartCountdown(message["minutes"].as_i64().unwrap()),
+            })
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    async fn cancel_animation(&mut self) -> Result<(), ()> {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "countdown".parse().unwrap(),
+                message: crate::BrokerMessage::CancelAnimation,
             })
             .await
             .map_err(|_| ())?;

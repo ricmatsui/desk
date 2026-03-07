@@ -1,0 +1,1 @@
+- macropad.pixels and key_event.key_number have the same numbering and correspond to the same physical key, so be sure to keep anything in sync between them.

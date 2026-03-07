@@ -841,9 +841,10 @@ def unicorn():
 
     clear_pixels()
     macropad.pixels[0] = colors_50['light_blue'].pack()
-    macropad.pixels[1] = colors_50['red'].pack()
+    macropad.pixels[1] = colors_50['green'].pack()
     macropad.pixels[2] = colors_50['white'].pack()
     macropad.pixels[3] = colors_50['yellow'].pack()
+    macropad.pixels[4] = colors_50['red'].pack()
 
     set_toolbar_pixels()
     macropad.pixels.show()
@@ -881,6 +882,10 @@ def unicorn():
                 state['name'] = 'unicorn_countdown'
                 break
 
+            if key_event.key_number == 4:
+                state['name'] = 'unicorn_cancel_animation'
+                break
+
 def unicorn_send_read_inbox():
     global state
 
@@ -897,8 +902,8 @@ def unicorn_send_clear_inbox():
 
     send_message(dict(kind='clearInbox'))
 
-    message = wait_for_reply_animated(1, gradients_50['red'])
-    check_response(message, 1, colors_50['red'])
+    message = wait_for_reply_animated(1, gradients_50['green'])
+    check_response(message, 1, colors_50['green'])
 
     reset_activity_timer()
     state['name'] = 'unicorn'
@@ -1030,6 +1035,17 @@ def unicorn_countdown():
         scale_group.x = -round(display_minutes * 4)
 
         macropad.display.refresh()
+
+def unicorn_cancel_animation():
+    global state
+
+    send_message(dict(kind='cancelAnimation'))
+
+    message = wait_for_reply_animated(4, gradients_50['red'])
+    check_response(message, 4, colors_50['red'])
+
+    reset_activity_timer()
+    state['name'] = 'unicorn'
 
 def bluetooth():
     global state
@@ -1164,6 +1180,7 @@ state_handlers = dict(
     unicorn_send_clear_inbox=unicorn_send_clear_inbox,
     unicorn_send_start_clock=unicorn_send_start_clock,
     unicorn_countdown=unicorn_countdown,
+    unicorn_cancel_animation=unicorn_cancel_animation,
 
     bluetooth=bluetooth,
     bluetooth_send_switch_bose_mac=bluetooth_send_switch_bose_mac,

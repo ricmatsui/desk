@@ -73,6 +73,7 @@ animation_heap = []
 animation_priority = None
 animation_running = False
 animation_interrupt = False
+animation_cancel = False
 
 def enqueue_animation(animation, priority):
     global animation_heap
@@ -97,17 +98,21 @@ def enqueue_animation(animation, priority):
 class AnimationInterrupt(Exception):
     pass
 
+class AnimationCancel(Exception):
+    pass
+
 class AnimationClear(Exception):
     pass
 
 async def stop_animation():
     raise AnimationClear()
-    
+
 async def run_animations():
     global animation_heap
     global animation_priority
     global animation_running
     global animation_interrupt
+    global animation_cancel
 
     print("run_animations start")
     try:
@@ -123,13 +128,17 @@ async def run_animations():
                 await animation
             except AnimationInterrupt:
                 print("run_animations interrupt")
+            except AnimationCancel:
+                print("run_animations cancel")
             except AnimationClear:
                 animation_heap.clear()
             animation_interrupt = False
+            animation_cancel = False
     finally:
         animation_priority = None
         animation_running = False
         animation_interrupt = False
+        animation_cancel = False
     print("run_animations finish")
 
 @server.route("/", methods=["GET"])
@@ -182,6 +191,13 @@ async def countdown(request):
 
     enqueue_animation(countdown_animation(timestamp), priority=2)
     return 'started'
+
+@server.route("/cancel-animation", methods=["GET"])
+def cancel_animation(request):
+    global animation_cancel
+    animation_cancel = True
+    enqueue_animation(inbox_animation(), priority=2)
+    return 'stopped'
 
 @server.route("/test", methods=["GET"])
 async def test(request):
@@ -908,6 +924,10 @@ LATE_FRAME_ENABLE = True
 async def sleep_frame():
     global frame_start
     global animation_interrupt
+    global animation_cancel
+
+    if animation_cancel:
+        raise AnimationCancel()
 
     if animation_interrupt:
         raise AnimationInterrupt()

@@ -92,6 +92,17 @@ impl Message<crate::BrokerMessage> for Unicorn {
                     .unwrap();
             }
 
+            crate::BrokerMessage::CancelAnimation => {
+                tracing::info!("unicorn: stopping countdown");
+
+                self.client
+                    .get(self.base_url.join("/cancel-animation").unwrap())
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+            }
             crate::BrokerMessage::StartTimestampCountdown(timestamp) => {
                 tracing::info!("unicorn message: {:?}", timestamp);
 
