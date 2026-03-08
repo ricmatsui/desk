@@ -406,6 +406,58 @@ def set_toolbar_pixels():
     macropad.pixels[10] = colors_50['white'].pack()
     macropad.pixels[11] = colors_50['cyan'].pack()
 
+apps = [
+    dict(name='toggl', color=colors_50['light_purple']),
+    dict(name='unicorn', color=colors_50['cream']),
+    dict(name='bluetooth', color=colors_50['light_blue']),
+    dict(name='servo', color=colors_50['yellow']),
+]
+
+def app_switch():
+    global state
+
+    source_index = next(i for i, app in enumerate(apps) if app['name'] == state['app_switch_source'])
+
+    if key_state[9]:
+        target = apps[0]
+    else:
+        target = apps[(source_index + 1) % len(apps)]
+
+    group = displayio.Group(y=macropad.display.height//2)
+    label = display_text.bitmap_label.Label(
+        font=terminalio.FONT,
+        text=target['name']
+    )
+    group.append(label)
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    clear_pixels()
+
+    for i, app in enumerate(apps):
+        macropad.pixels[i] = app['color'].pack()
+
+    set_toolbar_pixels()
+    macropad.pixels.show()
+
+    target_index = apps.index(target)
+
+    for i in range(2):
+        time.sleep(0.1)
+        macropad.pixels[target_index] = 0
+        macropad.pixels.show()
+        time.sleep(0.1)
+        macropad.pixels[target_index] = target['color'].pack()
+        macropad.pixels.show()
+
+    while True:
+        get_message()
+        key_event = get_key_event()
+
+        if key_event and key_event.key_number == 11 and key_event.released:
+            state['name'] = target['name']
+            break
+
 def startup():
     global state
 
@@ -450,52 +502,6 @@ def sleep():
 
     state['name'] = state['sleep_next_name']
 
-def apps():
-    global state
-
-    group = displayio.Group(y=macropad.display.height//2)
-
-    label = display_text.bitmap_label.Label(
-        font=terminalio.FONT,
-        text=state['apps_source_name']
-    )
-
-    group.append(label)
-    macropad.display.show(group)
-    macropad.display.refresh()
-
-    clear_pixels()
-    macropad.pixels[0] = colors_50['light_purple'].pack()
-    macropad.pixels[1] = colors_50['cream'].pack()
-    macropad.pixels[2] = colors_50['light_blue'].pack()
-    macropad.pixels[3] = colors_50['yellow'].pack()
-
-    set_toolbar_pixels()
-    macropad.pixels.show()
-
-    while True:
-        get_message()
-        key_event = get_key_event()
-
-        if key_event:
-            if key_event.key_number == 11 and not key_event.pressed:
-                state['name'] = label.text
-                break
-
-            if key_event.pressed:
-                if key_event.key_number == 0:
-                    label.text = 'toggl'
-
-                if key_event.key_number == 1:
-                    label.text = 'unicorn'
-
-                if key_event.key_number == 2:
-                    label.text = 'bluetooth'
-
-                if key_event.key_number == 3:
-                    label.text = 'servo'
-
-                macropad.display.refresh()
 
 def toggl():
     global state
@@ -530,9 +536,9 @@ def toggl():
         previous_index = state['toggl_index']
 
         if key_event and key_event.pressed:
-            if key_state[11]:
-                state['name'] = 'apps'
-                state['apps_source_name'] = 'toggl'
+            if key_event.key_number == 11:
+                state['name'] = 'app_switch'
+                state['app_switch_source'] = 'toggl'
                 break
 
             if key_event.key_number == 0:
@@ -861,9 +867,9 @@ def unicorn():
         key_event = get_key_event()
 
         if key_event and key_event.pressed:
-            if key_state[11]:
-                state['name'] = 'apps'
-                state['apps_source_name'] = 'unicorn'
+            if key_event.key_number == 11:
+                state['name'] = 'app_switch'
+                state['app_switch_source'] = 'unicorn'
                 break
 
             if key_event.key_number == 0:
@@ -1069,9 +1075,9 @@ def bluetooth():
         key_event = get_key_event()
 
         if key_event and key_event.pressed:
-            if key_state[11]:
-                state['name'] = 'apps'
-                state['apps_source_name'] = 'bluetooth'
+            if key_event.key_number == 11:
+                state['name'] = 'app_switch'
+                state['app_switch_source'] = 'bluetooth'
                 break
 
             if key_event.key_number == 0:
@@ -1138,11 +1144,10 @@ def servo():
 
         key_event = get_key_event()
 
-        if key_event and key_event.pressed:
-            if key_state[11]:
-                state['name'] = 'apps'
-                state['apps_source_name'] = 'servo'
-                break
+        if key_event and key_event.key_number == 11 and key_event.pressed:
+            state['name'] = 'app_switch'
+            state['app_switch_source'] = 'servo'
+            break
 
 
 initial_state = dict(
@@ -1151,8 +1156,7 @@ initial_state = dict(
     selected_option_index=0,
     options_group=displayio.Group(),
 
-    apps_source_name=None,
-
+    app_switch_source=None,
     sleep_next_name=None,
 
     toggl_index=0,
@@ -1164,7 +1168,7 @@ initial_state = dict(
 
 state_handlers = dict(
     startup=startup,
-    apps=apps,
+    app_switch=app_switch,
     sleep=sleep,
 
     toggl=toggl,
