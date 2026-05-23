@@ -10,6 +10,7 @@ use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::{Framed, LinesCodec};
 
 pub struct CircuitPlayground {
+    transmit: Box<dyn crate::serial_sink::Sink>,
     client: reqwest::Client,
     last_metrics_submitted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -18,7 +19,7 @@ impl Actor for CircuitPlayground {
     type Args = ();
     type Error = Infallible;
 
-    async fn on_start(_state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn on_start(_state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let mut headers = reqwest::header::HeaderMap::new();
 
         headers.insert(
@@ -32,6 +33,22 @@ impl Actor for CircuitPlayground {
             .build()
             .unwrap();
 
+        let tick_actor_ref = actor_ref.clone();
+
+        tick_actor_ref.tell(Tick).try_send().unwrap();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+
+            loop {
+                interval.tick().await;
+
+                if tick_actor_ref.tell(Tick).await.is_err() {
+                    break;
+                }
+            }
+        });
+
         #[cfg(feature = "pi")]
         {
             let serial_port = tokio_serial::new(
@@ -43,11 +60,14 @@ impl Actor for CircuitPlayground {
             tracing::info!("serial opened");
 
             let device = Framed::new(serial_port, LinesCodec::new());
-            let (_transmit, receive) = device.split::<String>();
+            let (transmit, receive) = device.split::<String>();
 
-            _actor_ref.attach_stream(receive, (), ());
+            actor_ref.attach_stream(receive, (), ());
+
+            let serial_sink = crate::serial_sink::SerialSink::new(transmit);
 
             Ok(Self {
+                transmit: Box::new(serial_sink),
                 last_metrics_submitted_at: None,
                 client,
             })
@@ -56,10 +76,26 @@ impl Actor for CircuitPlayground {
         #[cfg(not(feature = "pi"))]
         {
             Ok(Self {
+                transmit: Box::new(crate::serial_sink::DummySink),
                 last_metrics_submitted_at: None,
                 client,
             })
         }
+    }
+}
+
+pub struct Tick;
+
+impl Message<Tick> for CircuitPlayground {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _message: Tick,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.send_message(serde_json::json!({ "kind": "heartbeat" }))
+            .await;
     }
 }
 
@@ -146,5 +182,12 @@ impl Message<ReadingUpdated> for CircuitPlayground {
         tracing::info!("submitted metrics: {}", value);
 
         self.last_metrics_submitted_at = Some(current_date);
+    }
+}
+
+impl CircuitPlayground {
+    async fn send_message(&mut self, message: serde_json::Value) {
+        tracing::info!("-> {:?}", message);
+        self.transmit.send(message.to_string()).await.unwrap();
     }
 }

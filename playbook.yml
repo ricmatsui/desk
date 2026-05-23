@@ -61,6 +61,9 @@
     - role: hub
       tags: hub
 
+    - role: circuit_playground
+      tags: circuit_playground
+
     - role: macropad
       tags: macropad
 

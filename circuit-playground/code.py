@@ -13,6 +13,8 @@ button = digitalio.DigitalInOut(board.BUTTON_A)
 button.switch_to_input(pull=digitalio.Pull.DOWN)
 pixels = neopixel.NeoPixel(board.NEOPIXEL, 10, brightness=1.0, auto_write=False)
 
+usb_cdc.data.timeout = 0
+
 def send_heartbeat():
     print('->', 'heartbeat')
     usb_cdc.data.write(bytes('c\n', 'utf-8'))
@@ -50,6 +52,8 @@ while True:
     else:
         pixels.fill(OFF)
         pixels.show()
+
+    usb_cdc.data.read(100)
 
     time.sleep(0.01)
     time_since_update += 0.01
