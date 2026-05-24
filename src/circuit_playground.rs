@@ -115,6 +115,8 @@ impl Message<StreamMessage<Result<String, tokio_util::codec::LinesCodecError>, (
                     return;
                 }
 
+                tracing::info!("<- {}", line);
+
                 if line.starts_with("ra1") {
                     let value = line["ra1".len()..].parse::<u32>().unwrap();
 
@@ -159,6 +161,8 @@ impl Message<ReadingUpdated> for CircuitPlayground {
         {
             return;
         }
+
+        tracing::info!("starting metrics submission");
 
         self.client
             .post("https://api.datadoghq.com/api/v2/series")

@@ -91,7 +91,22 @@
     <hr>
 
     <form data-format="form" action="/countdown" method="GET">
-        <input type="number" name="seconds" value="10">
+        <p>
+            <fieldset>
+                <legend>Icon</legend>
+                <label><input type="radio" name="icon" value="calendar" checked>Calendar</label>
+                <label><input type="radio" name="icon" value="flag">Flag</label>
+                <label><input type="radio" name="icon" value="timer">Timer</label>
+            </fieldset>
+        </p>
+
+        <p>
+            <label>
+                Seconds
+                <input type="number" name="seconds" value="10">
+            </label>
+        </p>
+
         <input type="submit" value="Countdown">
     </form>
 

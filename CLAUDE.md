@@ -1,0 +1,1 @@
+- Where possible, keep code organized by ordering from high-level to low-level. Example: define the most important struct/impl at the top, and helper structs/impls at the bottom.

@@ -189,7 +189,8 @@ async def countdown(request):
                 pass
         timestamp = int(request.args['timestamp'])
 
-    enqueue_animation(countdown_animation(timestamp), priority=2)
+    icon = {'calendar': CALENDAR, 'flag': FLAG, 'timer': TIMER}[request.args['icon']]
+    enqueue_animation(countdown_animation(timestamp, icon), priority=2)
     return 'started'
 
 @server.route("/cancel-animation", methods=["GET"])
@@ -412,7 +413,7 @@ async def clock_animation(start_timestamp):
 
                 unicorn.update(graphics)
 
-async def countdown_animation(timestamp):
+async def countdown_animation(timestamp, icon):
     graphics.set_font(font)
 
     sleep_reset()
@@ -457,7 +458,7 @@ async def countdown_animation(timestamp):
                 graphics.clear()
                 graphics.set_pen(WHITE)
 
-                draw_icon(graphics, CALENDAR, 0, y)
+                draw_icon(graphics, icon, 0, y)
                 graphics.text(clock, x, y, scale=1, spacing=2)
 
                 if timer < RAINBOW_TIMER_THRESHOLD:
@@ -504,7 +505,7 @@ async def countdown_animation(timestamp):
                     graphics.clear()
                     graphics.set_pen(WHITE)
 
-                    draw_icon(graphics, CALENDAR, 0, y)
+                    draw_icon(graphics, icon, 0, y)
 
                     movement_x = 0
 
@@ -527,7 +528,7 @@ async def countdown_animation(timestamp):
 
         enqueue_animation(inbox_animation(), priority=3)
     except AnimationInterrupt:
-        enqueue_animation(countdown_animation(timestamp), priority=2)
+        enqueue_animation(countdown_animation(timestamp, icon), priority=2)
         raise
 
 async def spacex_animation():
@@ -552,7 +553,14 @@ async def spacex_animation():
     response = requests.get("https://sxcontent9668.azureedge.us/cms-assets/future_missions.json")
     content = json.loads(deflate.DeflateIO(io.StringIO(response.content)).read())
 
-    mission_id = min(content, key=lambda mission_id: content[mission_id]['Order'])
+    now = time.time()
+    mission_id = min(
+        (
+            mission_id for mission_id in content
+            if (content[mission_id].get('TZeroLaunchDate') or {}).get('Seconds', 0) > now
+        ),
+        key=lambda mission_id: content[mission_id]['TZeroLaunchDate']['Seconds']
+    )
 
     graphics.set_pen(GREEN)
     graphics.pixel(0, 0)
@@ -745,6 +753,30 @@ CLOCK = bytearray([
     0b00001000,0b00001000,
     0b00000111,0b11110000,
     0b00000000,0b00000000, # Clock
+])
+TIMER = bytearray([
+    0b00000000,0b00010000,
+    0b00001011,0b11001000,
+    0b00000100,0b00100000,
+    0b00001000,0b00010000,
+    0b00001000,0b11010000,
+    0b00001001,0b00010000,
+    0b00000100,0b00100000,
+    0b00001011,0b11001000,
+    0b00000000,0b00010000,
+    0b00000000,0b00000000, # Timer
+])
+FLAG = bytearray([
+    0b00000000,0b00000000,
+    0b00001111,0b11111100,
+    0b00000000,0b10001000,
+    0b00000000,0b10001000,
+    0b00000000,0b10001000,
+    0b00000000,0b10001000,
+    0b00000000,0b10101000,
+    0b00000000,0b11011000,
+    0b00000000,0b10001000,
+    0b00000000,0b00000000, # Flag
 ])
 
 @micropython.native # pyright: ignore
