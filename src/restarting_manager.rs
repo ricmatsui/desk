@@ -16,12 +16,16 @@ where
     type Args = (Box<dyn Fn() -> A::Args + Send + Sync>,);
     type Error = Infallible;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let get_child_args = state.0;
 
         let child_ref = RestartingManager::spawn_link(&get_child_args, &actor_ref).await;
 
-        actor_ref.tell(Tick).try_send().unwrap();
+        actor_ref.tell(Tick).await.unwrap();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
@@ -29,7 +33,7 @@ where
             loop {
                 interval.tick().await;
 
-                if actor_ref.tell(Tick).try_send().is_err() {
+                if actor_ref.tell(Tick).await.is_err() {
                     break;
                 }
             }
@@ -48,9 +52,12 @@ where
         _reason: ActorStopReason,
     ) -> Result<::core::ops::ControlFlow<kameo::error::ActorStopReason>, Self::Error> {
         tracing::warn!("link died - {:?}", id);
-        self.child_ref =
-            RestartingManager::spawn_link(&self.get_child_args, &actor_ref.upgrade().unwrap()).await;
-        tracing::info!("spawned - {:?}", id);
+        let Some(actor_ref) = actor_ref.upgrade() else {
+            tracing::warn!("manager shutting down, not respawning - {:?}", id);
+            return Ok(::core::ops::ControlFlow::Continue(()));
+        };
+        self.child_ref = RestartingManager::spawn_link(&self.get_child_args, &actor_ref).await;
+        tracing::info!("spawned - {:?}", self.child_ref.id());
         Ok(::core::ops::ControlFlow::Continue(()))
     }
 }

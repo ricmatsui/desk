@@ -11,3 +11,4 @@
 /unicorn/typings
 *.blend?
 *.FCBak
+__pycache__

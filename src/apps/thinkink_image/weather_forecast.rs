@@ -6,7 +6,9 @@ pub fn weather_forecast(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let now = chrono::Local::now();
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(

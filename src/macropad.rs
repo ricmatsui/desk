@@ -24,6 +24,10 @@ impl Actor for Macropad {
     type Args = (ActorRef<broker::Broker<crate::BrokerMessage>>,);
     type Error = MacropadError;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let (broker_ref,) = state;
 

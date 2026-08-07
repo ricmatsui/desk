@@ -13,6 +13,10 @@ impl Actor for Light {
     type Args = (ActorRef<crate::thinkink::ThinkInk>,);
     type Error = Infallible;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let thinkink_ref = state.0;
 

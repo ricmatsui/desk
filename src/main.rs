@@ -17,6 +17,7 @@ mod toggl;
 mod unicorn;
 mod urban;
 mod fireworks;
+mod watchdog;
 
 #[derive(Debug, Clone)]
 pub enum BrokerMessage {
@@ -127,6 +128,8 @@ async fn tokio_main(
     ActorSwarm::bootstrap()?
         .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
         .await?;
+
+    watchdog::spawn();
 
     let broker_ref = broker::Broker::spawn(broker::Broker::new(
         kameo_actors::DeliveryStrategy::Guaranteed,

@@ -14,6 +14,10 @@ impl Actor for Unicorn {
     type Args = (ActorRef<broker::Broker<crate::BrokerMessage>>,);
     type Error = Infallible;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let broker_ref = state.0;
 
@@ -50,7 +54,10 @@ impl Actor for Unicorn {
             .unwrap();
 
         Ok(Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap(),
             base_url: reqwest::Url::parse(&std::env::var("UNICORN_BASE_URL").unwrap()).unwrap(),
             schedule: Vec::new(),
             wake_task: None,
@@ -208,6 +215,7 @@ impl Unicorn {
 
         if let Some(next) = self.schedule.first() {
             let next_at = next.at;
+
             let handle = tokio::spawn(async move {
                 let now = chrono::Local::now();
                 let sleep_duration = (next_at - now)
@@ -278,8 +286,14 @@ fn add_calendar_event(
         }
     });
 
+    let overlaps_prior_event = schedule.iter().any(|item| {
+        matches!(&item.action, ScheduledAction::SendEnding { target } if *target > start_at)
+    });
+
     let countdown_at = if let Some(idx) = chained_idx {
         schedule.remove(idx);
+        now
+    } else if overlaps_prior_event {
         now
     } else {
         let latest_ending_at = schedule
@@ -416,6 +430,38 @@ mod tests {
         assert_eq!(schedule[2].action, ScheduledAction::SendCountdown { target: t(2026, 5, 23, 9, 20) });
         assert_eq!(schedule[3].at, t(2026, 5, 23, 9, 20));
         assert_eq!(schedule[3].action, ScheduledAction::SendEnding { target: t(2026, 5, 23, 9, 30) });
+    }
+
+    #[test]
+    fn overlap_case_sends_countdown_immediately() {
+        // A 9:00-9:30 already on schedule (added at 8:40). Event B 9:20-9:40 arrives at 9:10,
+        // starting while A is still running. B's countdown must fire immediately so it is not
+        // hidden behind A's 9:20 "ending soon" indicator.
+        let now_b = t(2026, 5, 23, 9, 10);
+        let mut schedule = vec![];
+        add_calendar_event(
+            &mut schedule,
+            t(2026, 5, 23, 9, 0),
+            t(2026, 5, 23, 9, 30),
+            t(2026, 5, 23, 8, 40),
+        );
+
+        add_calendar_event(&mut schedule, t(2026, 5, 23, 9, 20), t(2026, 5, 23, 9, 40), now_b);
+
+        // Expected, in (at, ending-before-countdown) order:
+        //   8:40  SendCountdown(9:00)   (from A)
+        //   9:10  SendCountdown(9:20)   (from B, immediate — not deferred to 9:20)
+        //   9:20  SendEnding(9:30)      (from A, kept)
+        //   9:30  SendEnding(9:40)      (from B)
+        assert_eq!(schedule.len(), 4);
+        assert_eq!(schedule[0].at, t(2026, 5, 23, 8, 40));
+        assert_eq!(schedule[0].action, ScheduledAction::SendCountdown { target: t(2026, 5, 23, 9, 0) });
+        assert_eq!(schedule[1].at, now_b);
+        assert_eq!(schedule[1].action, ScheduledAction::SendCountdown { target: t(2026, 5, 23, 9, 20) });
+        assert_eq!(schedule[2].at, t(2026, 5, 23, 9, 20));
+        assert_eq!(schedule[2].action, ScheduledAction::SendEnding { target: t(2026, 5, 23, 9, 30) });
+        assert_eq!(schedule[3].at, t(2026, 5, 23, 9, 30));
+        assert_eq!(schedule[3].action, ScheduledAction::SendEnding { target: t(2026, 5, 23, 9, 40) });
     }
 
     #[test]

@@ -19,6 +19,10 @@ impl Actor for CircuitPlayground {
     type Args = ();
     type Error = Infallible;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(_state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let mut headers = reqwest::header::HeaderMap::new();
 
@@ -30,6 +34,7 @@ impl Actor for CircuitPlayground {
 
         let client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(10))
             .build()
             .unwrap();
 

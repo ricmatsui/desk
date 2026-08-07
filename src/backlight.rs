@@ -22,6 +22,10 @@ impl Actor for Backlight {
     type Args = ();
     type Error = Infallible;
 
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::unbounded())
+    }
+
     async fn on_start(_state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         #[cfg(feature = "pi")]
         {
