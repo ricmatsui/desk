@@ -23,6 +23,7 @@ HOLD_TIME = 60
 TEXT = "The quick brown fox jumps over the lazy dog."
 RAINBOW_TIMER_THRESHOLD = 10
 RAINBOW_FRAME_MULTIPLIER = 2
+MAX_COUNTDOWN_SECONDS = 99 * 60 + 59
 
 unicorn = GalacticUnicorn()
 graphics = PicoGraphics(DISPLAY)
@@ -418,7 +419,7 @@ async def countdown_animation(timestamp, icon):
 
     sleep_reset()
 
-    diff_seconds = min(3599, max(0, timestamp - time.time()))
+    diff_seconds = min(MAX_COUNTDOWN_SECONDS, max(0, timestamp - time.time()))
 
     target = time.ticks_add(time.ticks_ms(), diff_seconds * 1000)
 
@@ -444,7 +445,7 @@ async def countdown_animation(timestamp, icon):
                     break
 
             timer = max(0, diff)
-            minute = math.floor(timer / 60 % 60)
+            minute = math.floor(timer / 60)
             second = math.floor(timer % 60)
 
             previous_clock = clock
