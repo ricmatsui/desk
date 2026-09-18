@@ -4,6 +4,25 @@
 		<title>Impression</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
+            :root {
+                color-scheme: light dark;
+
+                --background: white;
+                --foreground: black;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --background: #121212;
+                    --foreground: #e6e6e6;
+                }
+            }
+
+            html {
+                background: var(--background);
+                color: var(--foreground);
+            }
+
             body {
                 display: flex;
                 align-items: center;
@@ -15,7 +34,7 @@
                 padding: 10vw;
                 margin: 10vw;
 
-                border: 1px solid black;
+                border: 1px solid var(--foreground);
                 border-radius: 5px;
 
                 display: block;
@@ -26,8 +45,8 @@
             }
 
             .upload-button:active {
-                background-color: black;
-                color: white;
+                background-color: var(--foreground);
+                color: var(--background);
             }
 
             .loading {
