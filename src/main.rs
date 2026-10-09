@@ -138,11 +138,17 @@ async fn tokio_main(
     let raylib_manager_ref =
         raylib_manager::RaylibManager::spawn((raylib_transmit.clone(), raylib_manager_receive));
 
+    let toggl_manager_ref = restarting!(toggl::Toggl, (broker_ref,));
+
     let actor_refs: Vec<Box<dyn WaitableActorRef>> = vec![
         Box::new(broker_ref.clone()),
         Box::new(raylib_manager_ref.clone()),
+        Box::new(toggl_manager_ref.clone()),
         Box::new(restarting!(backlight::Backlight, ())),
-        Box::new(restarting!(macropad::Macropad, (broker_ref,))),
+        Box::new(restarting!(
+            macropad::Macropad,
+            (broker_ref, toggl_manager_ref)
+        )),
         Box::new(restarting!(circuit_playground::CircuitPlayground, ())),
         Box::new(restarting!(
             thinkink::ThinkInk,

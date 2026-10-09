@@ -84,6 +84,25 @@ where
     }
 }
 
+pub struct GetChild;
+
+impl<A> Message<GetChild> for RestartingManager<A>
+where
+    A: Actor,
+{
+    type Reply = Option<ActorRef<A>>;
+
+    async fn handle(
+        &mut self,
+        _message: GetChild,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.child_ref
+            .is_alive()
+            .then(|| self.child_ref.clone())
+    }
+}
+
 impl<A> RestartingManager<A>
 where
     A: Actor,

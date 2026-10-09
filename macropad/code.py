@@ -1,6 +1,14 @@
+from adafruit_ticks import ticks_ms, ticks_diff
+
+boot_start = ticks_ms()
+
+def boot_marker(step):
+    print(step, ticks_diff(ticks_ms(), boot_start))
+
+boot_marker('imp')
+
 from adafruit_macropad import MacroPad
 import json
-import supervisor
 import time
 import usb_cdc
 import displayio
@@ -20,16 +28,21 @@ from adafruit_dps310.basic import DPS310
 import adafruit_vl6180x
 import board
 
+boot_marker('i2c')
 i2c = board.I2C()
 
+boot_marker('ss')
 neoslider = Seesaw(i2c, 0x30)
 potentiometer = AnalogInput(neoslider, 18)
 
+boot_marker('pcf')
 pcf = PCF.PCF8591(i2c)
 pcf_in_0 = AnalogIn(pcf, PCF.A0)
 pcf_in_3 = AnalogIn(pcf, PCF.A3)
 
+boot_marker('mp')
 macropad = MacroPad()
+boot_marker('ok')
 
 macropad.pixels[0] = fancy.CRGB(1.0, 1.0, 0.0).pack()
 macropad.pixels.show()
@@ -99,6 +112,7 @@ def send_y_axis(value):
 
 message_buffer = ''
 usb_cdc.data.timeout = 0
+usb_cdc.data.write_timeout = 0.5
 
 def get_message():
     global message_buffer
@@ -365,9 +379,9 @@ gradients_50 = {
 
 def wait_for_reply_animated(index, gradient, timeout=8000):
     clear_pixels()
-    start = supervisor.ticks_ms()
+    start = ticks_ms()
     while True:
-        position = supervisor.ticks_ms() - start
+        position = ticks_diff(ticks_ms(), start)
 
         color = fancy.palette_lookup(gradient, position / 1000)
         macropad.pixels[index] = color.pack()
@@ -465,7 +479,7 @@ def startup():
     macropad.pixels[0] = colors_50['green'].pack()
     macropad.pixels.show()
 
-    state['name'] = 'toggl'
+    state['name'] = 'unicorn'
 
 def sleep():
     global state
@@ -618,10 +632,10 @@ def toggl_get_time_entries():
     entries = []
 
     clear_pixels()
-    start = supervisor.ticks_ms()
+    start = ticks_ms()
 
     while True:
-        position = supervisor.ticks_ms() - start
+        position = ticks_diff(ticks_ms(), start)
 
         color = fancy.palette_lookup(gradients_50['yellow'], position / 1000)
         macropad.pixels[0] = color.pack()
@@ -659,9 +673,10 @@ def toggl_get_time_entries():
     state['toggl_options_group'] = displayio.Group()
 
     for i, option in enumerate(options):
+        # Empty text leaves label.bitmap as None, which TileGrid rejects
         label = display_text.bitmap_label.Label(
             font=terminalio.FONT,
-            text=option
+            text=option or ' '
         )
 
         palette = palettes['normal']

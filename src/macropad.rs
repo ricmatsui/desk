@@ -9,19 +9,23 @@ use tokio_serial::SerialPortBuilderExt;
 #[cfg(feature = "pi")]
 use tokio_util::codec::{Framed, LinesCodec};
 
+use crate::restarting_manager;
 use crate::toggl;
 
 pub struct Macropad {
     transmit: Box<dyn crate::serial_sink::Sink>,
     broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
-    toggl_ref: ActorRef<toggl::Toggl>,
+    toggl_manager_ref: ActorRef<restarting_manager::RestartingManager<toggl::Toggl>>,
 }
 
 #[derive(Debug)]
 pub struct MacropadError;
 
 impl Actor for Macropad {
-    type Args = (ActorRef<broker::Broker<crate::BrokerMessage>>,);
+    type Args = (
+        ActorRef<broker::Broker<crate::BrokerMessage>>,
+        ActorRef<restarting_manager::RestartingManager<toggl::Toggl>>,
+    );
     type Error = MacropadError;
 
     fn prepare() -> PreparedActor<Self> {
@@ -29,9 +33,7 @@ impl Actor for Macropad {
     }
 
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let (broker_ref,) = state;
-
-        let toggl_ref = crate::toggl::Toggl::spawn_link(&actor_ref, (broker_ref.clone(),)).await;
+        let (broker_ref, toggl_manager_ref) = state;
 
         let tick_actor_ref = actor_ref.clone();
 
@@ -67,7 +69,7 @@ impl Actor for Macropad {
             Ok(Self {
                 transmit: Box::new(serial_sink),
                 broker_ref,
-                toggl_ref,
+                toggl_manager_ref,
             })
         }
 
@@ -76,7 +78,7 @@ impl Actor for Macropad {
             Ok(Self {
                 transmit: Box::new(crate::serial_sink::DummySink),
                 broker_ref,
-                toggl_ref,
+                toggl_manager_ref,
             })
         }
     }
@@ -225,7 +227,8 @@ impl Macropad {
 
     async fn send_time_entries(&mut self) -> Result<(), ()> {
         let result = self
-            .toggl_ref
+            .toggl_ref()
+            .await?
             .ask(toggl::GetTimeEntries)
             .await
             .map_err(|_| ())?;
@@ -251,7 +254,8 @@ impl Macropad {
     }
 
     async fn start_time_entry(&mut self, message: serde_json::Value) -> Result<(), ()> {
-        self.toggl_ref
+        self.toggl_ref()
+            .await?
             .ask(toggl::StartTimeEntry {
                 description: message["timeEntry"]["description"]
                     .as_str()
@@ -265,7 +269,8 @@ impl Macropad {
     }
 
     async fn stop_time_entry(&mut self) -> Result<(), ()> {
-        self.toggl_ref
+        self.toggl_ref()
+            .await?
             .ask(toggl::StopTimeEntry)
             .await
             .map_err(|_| ())?;
@@ -274,7 +279,8 @@ impl Macropad {
     }
 
     async fn continue_time_entry(&mut self) -> Result<(), ()> {
-        self.toggl_ref
+        self.toggl_ref()
+            .await?
             .ask(toggl::ContinueTimeEntry)
             .await
             .map_err(|_| ())?;
@@ -283,7 +289,8 @@ impl Macropad {
     }
 
     async fn adjust_time(&mut self, message: serde_json::Value) -> Result<(), ()> {
-        self.toggl_ref
+        self.toggl_ref()
+            .await?
             .ask(toggl::AdjustTime {
                 minutes: message["minutes"].as_i64().unwrap(),
             })
@@ -315,6 +322,14 @@ impl Macropad {
             .map_err(|_| ())?;
 
         Ok(())
+    }
+
+    async fn toggl_ref(&mut self) -> Result<ActorRef<toggl::Toggl>, ()> {
+        self.toggl_manager_ref
+            .ask(restarting_manager::GetChild)
+            .await
+            .map_err(|_| ())?
+            .ok_or(())
     }
 
     async fn send_success_message(&mut self) {
