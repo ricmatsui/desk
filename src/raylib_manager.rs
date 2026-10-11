@@ -24,6 +24,23 @@ impl Actor for RaylibManager {
     }
 }
 
+pub struct ShowDashboard(pub Option<crate::apps::dashboard::Dashboard>);
+
+impl Message<ShowDashboard> for RaylibManager {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        message: ShowDashboard,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.transmit
+            .send(crate::RaylibRequest::ShowDashboard(message.0))
+            .await
+            .unwrap();
+    }
+}
+
 pub struct RenderThinkInkImage;
 
 impl Message<RenderThinkInkImage> for RaylibManager {

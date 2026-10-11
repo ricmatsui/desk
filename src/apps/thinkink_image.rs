@@ -8,27 +8,29 @@ mod weather_forecast;
 const IMAGE_WIDTH: u32 = 296;
 const IMAGE_HEIGHT: u32 = 128;
 
-pub fn thinkink_image(raylib_actor_transmit: &tokio::sync::mpsc::Sender<RaylibResponse>) {
+pub fn thinkink_image(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    raylib_actor_transmit: &tokio::sync::mpsc::Sender<RaylibResponse>,
+) {
     let current_date = chrono::Local::now();
 
-    let (mut rl, thread) = raylib::init().size(240, 240).title("Desk").build();
-
     let font = rl
-        .load_font_from_memory(&thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
+        .load_font_from_memory(thread, ".ttf", FONT_DATA, 80, FontLoadEx::Default(0))
         .unwrap();
 
     let font_solid = rl
-        .load_font_from_memory(&thread, ".ttf", FONT_SOLID_DATA, 30, FontLoadEx::Default(0))
+        .load_font_from_memory(thread, ".ttf", FONT_SOLID_DATA, 30, FontLoadEx::Default(0))
         .unwrap();
 
-    let mut game_of_life = game_of_life::GameOfLife::new(&mut rl, &thread);
-    let mut solar_system = solar_system::SolarSystem::new(&mut rl, &thread);
+    let mut game_of_life = game_of_life::GameOfLife::new(rl, thread);
+    let mut solar_system = solar_system::SolarSystem::new(rl, thread);
 
-    let mut d = rl.begin_drawing(&thread);
+    let mut d = rl.begin_drawing(thread);
 
     let mut image = Image::gen_image_color(IMAGE_WIDTH as i32, IMAGE_HEIGHT as i32, Color::WHITE);
 
-    let mut game_of_life_image = game_of_life.draw_image(&mut d, &thread);
+    let mut game_of_life_image = game_of_life.draw_image(&mut d, thread);
 
     game_of_life_image.color_invert();
     game_of_life_image.color_brightness(30);
@@ -58,7 +60,7 @@ pub fn thinkink_image(raylib_actor_transmit: &tokio::sync::mpsc::Sender<RaylibRe
         );
     }
 
-    let solar_system_image = solar_system.draw_image(&mut d, &thread);
+    let solar_system_image = solar_system.draw_image(&mut d, thread);
 
     let source_rectangle = Rectangle::new(
         0.0,

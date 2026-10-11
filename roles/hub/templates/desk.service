@@ -16,6 +16,7 @@ Environment=TOGGL_WORKSPACE_ID={{ toggl_workspace_id }}
 Environment=WAKE_ON_LAN_MAC={{ wake_on_lan_mac }}
 Environment=BOSE_MAC={{ bose_mac }}
 Environment=DATADOG_API_KEY={{ datadog_api_key }}
+Environment=DATADOG_APP_KEY={{ datadog_app_key }}
 Environment=LATITUDE={{ latitude }}
 Environment=LONGITUDE={{ longitude }}
 Environment=THINKINK_SERIAL_PATH={{ thinkink_serial_path }}

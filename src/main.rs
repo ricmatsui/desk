@@ -6,6 +6,7 @@ use tracing_subscriber::EnvFilter;
 mod apps;
 mod backlight;
 mod circuit_playground;
+mod datadog;
 mod home_assistant;
 mod light;
 mod macropad;
@@ -64,6 +65,7 @@ pub struct CalendarEventUpcoming {
 
 pub enum RaylibRequest {
     RenderThinkInkImage,
+    ShowDashboard(Option<apps::dashboard::Dashboard>),
 }
 
 pub enum RaylibResponse {
@@ -139,12 +141,13 @@ async fn tokio_main(
         raylib_manager::RaylibManager::spawn((raylib_transmit.clone(), raylib_manager_receive));
 
     let toggl_manager_ref = restarting!(toggl::Toggl, (broker_ref,));
+    let backlight_manager_ref = restarting!(backlight::Backlight, ());
 
     let actor_refs: Vec<Box<dyn WaitableActorRef>> = vec![
         Box::new(broker_ref.clone()),
         Box::new(raylib_manager_ref.clone()),
         Box::new(toggl_manager_ref.clone()),
-        Box::new(restarting!(backlight::Backlight, ())),
+        Box::new(backlight_manager_ref.clone()),
         Box::new(restarting!(
             macropad::Macropad,
             (broker_ref, toggl_manager_ref)
@@ -158,6 +161,10 @@ async fn tokio_main(
         Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
         Box::new(restarting!(urban::Urban, ())),
         Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
+        Box::new(restarting!(
+            datadog::Datadog,
+            (raylib_manager_ref, backlight_manager_ref)
+        )),
     ];
 
     for actor_ref in actor_refs {
@@ -171,12 +178,22 @@ fn raylib_main(
     raylib_manager_transmit: tokio::sync::mpsc::Sender<RaylibResponse>,
     mut raylib_receive: tokio::sync::mpsc::Receiver<RaylibRequest>,
 ) {
+    let (mut rl, thread) = raylib::init().size(240, 240).title("Desk").build();
+
+    let mut dashboard = None;
+
     while let Some(request) = raylib_receive.blocking_recv() {
         match request {
             RaylibRequest::RenderThinkInkImage => {
-                apps::thinkink_image::thinkink_image(&raylib_manager_transmit);
+                apps::thinkink_image::thinkink_image(&mut rl, &thread, &raylib_manager_transmit);
+            }
+            RaylibRequest::ShowDashboard(next_dashboard) => {
+                dashboard = next_dashboard;
             }
         }
+
+        // Redraw after every request since ThinkInk renders also present a frame
+        apps::dashboard::draw(&mut rl, &thread, dashboard.as_ref());
     }
 }
 

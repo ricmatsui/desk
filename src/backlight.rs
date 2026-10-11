@@ -29,6 +29,13 @@ impl Actor for Backlight {
     async fn on_start(_state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         #[cfg(feature = "pi")]
         {
+            // Disable X idle blanking, the display is only switched by SetEnabled
+            Command::new("xset").args(["s", "off"]).status().unwrap();
+            Command::new("xset")
+                .args(["dpms", "0", "0", "0"])
+                .status()
+                .unwrap();
+
             let pwm = pwm::Pwm::with_frequency(
                 pwm::Channel::Pwm1,
                 600_000.0,
