@@ -9,6 +9,8 @@ boot_marker('imp')
 
 from adafruit_macropad import MacroPad
 import json
+import microcontroller
+import supervisor
 import time
 import usb_cdc
 import displayio
@@ -117,6 +119,8 @@ usb_cdc.data.write_timeout = 0.5
 def get_message():
     global message_buffer
 
+    check_usb_connected()
+
     message_buffer += usb_cdc.data.read(100).decode('utf-8')
 
     index = message_buffer.find('\n')
@@ -140,6 +144,22 @@ def get_message():
         return None
 
     return message
+
+# If the host never enumerates us (e.g. it booted alongside us and the
+# enumeration timed out), only a reset makes us reattach to the bus.
+USB_DISCONNECTED_RESET_MS = 30_000
+usb_last_connected = ticks_ms()
+
+def check_usb_connected():
+    global usb_last_connected
+
+    if supervisor.runtime.usb_connected:
+        usb_last_connected = ticks_ms()
+        return
+
+    if ticks_diff(ticks_ms(), usb_last_connected) > USB_DISCONNECTED_RESET_MS:
+        print('usb disconnected, resetting')
+        microcontroller.reset()
 
 last_activity = time.time()
 
