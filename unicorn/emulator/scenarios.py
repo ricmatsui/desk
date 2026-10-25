@@ -66,6 +66,14 @@ async def expire_with_overflow():
     seed(6, ttls={1: 3})
 
 
+async def add_in_place():
+    seed(2)
+    await until_playing("inbox_animation")
+    await wait(2000)
+    # Appended without a message animation, which would restart the inbox
+    runtime.main.message_inbox.append(message("Lorem ipsum", icon="siren"))
+
+
 async def remove_by_id():
     seed(2)
     await call("message", json=message("Lorem ipsum +2", icon="siren", id="datadog"))
@@ -96,6 +104,7 @@ SCENARIOS = [
     Scenario("ttl", "Message with TTL", "8s TTL from arrival: message plays, its icon slides in, then drops out.", message_with_ttl),
     Scenario("expire-middle", "Expire middle", "Seed 3, the middle with a 3s TTL: it sinks, then the last shifts left.", expire_middle),
     Scenario("expire-overflow", "Expire with overflow", "Seed 6, the 2nd with a 3s TTL: after it sinks the rest shift left and the 6th slides in from the right.", expire_with_overflow),
+    Scenario("add", "Add in place", "Seed 2, then a 3rd is added without playing: the row shifts to make room, then it rises.", add_in_place),
     Scenario("remove", "Remove by id", "Seed 2, a siren with id datadog arrives, then is removed: it drops out like an expiry.", remove_by_id),
     Scenario("replace", "Replace by id", "A siren with id datadog arrives, then another with the same id replaces it quietly, without playing.", replace_by_id),
     Scenario("replay", "Replay slide-in", "Re-slide the current inbox from the bottom.", replay_slide_in),

@@ -26,6 +26,7 @@ STATE_CHECK_SECONDS = 0.1
 
 # Globals in main.py exposed as controls; set through main.py's own /tune route
 TUNABLES = [
+    {"var": "INBOX_CENTER", "type": "bool"},
     {"var": "INBOX_STAGGER", "type": "int", "min": 0, "max": 20, "step": 1, "unit": "px"},
     {"var": "INBOX_SLIDE_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},
     {"var": "INBOX_SHIFT_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},

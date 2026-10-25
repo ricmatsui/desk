@@ -24,7 +24,9 @@ TEXT = "The quick brown fox jumps over the lazy dog."
 RAINBOW_TIMER_THRESHOLD = 10
 RAINBOW_FRAME_MULTIPLIER = 2
 MAX_COUNTDOWN_SECONDS = 99 * 60 + 59
+INBOX_CENTER = True
 INBOX_SLOT_WIDTH = 11
+INBOX_ICON_WIDTH = 9
 INBOX_SLIDE_SPEED = 1
 INBOX_SHIFT_SPEED = 1
 INBOX_STAGGER = 10
@@ -874,8 +876,9 @@ async def inbox_animation():
 
     sleep_reset()
 
-    # [x, y, message] for each drawn icon, keyed by id(message). Icons rise from below the display into their slot
-    # and slide left when an earlier slot frees up. Holding the message keeps its id from being reused.
+    # [x, y, message] for each drawn icon, keyed by id(message). Holding the message keeps its id from being reused.
+    # Changes to the row play in order: expired icons sink out, then the rest shift to their slots, then new icons
+    # rise from below the display into theirs.
     placed = {}
     # [x, y, message] for icons of expired messages, sinking back below the display
     leaving = []
@@ -901,29 +904,35 @@ async def inbox_animation():
         for key in [key for key in placed if key not in visible_ids]:
             del placed[key]
 
-        previous = None
-        for i, message in enumerate(visible):
+        # Slots count icons still waiting to rise, so the row makes room for them first
+        row_x = inbox_row_x(len(visible))
+        icons = []
+        for message in visible:
             icon = placed.get(id(message))
             if icon is None:
-                if previous:
-                    # Behind the previous icon, which may not have shifted into its own slot yet
-                    x = max(i * INBOX_SLOT_WIDTH, previous[0] + INBOX_SLOT_WIDTH)
-                    y = max(HEIGHT, previous[1] + INBOX_STAGGER)
-                else:
-                    x, y = i * INBOX_SLOT_WIDTH, HEIGHT
-                icon = placed[id(message)] = [x, y, message]
-            previous = icon
+                # Waits below the display, staggered behind the previous icon if that is waiting too
+                y = max(HEIGHT, icons[-1][1] + INBOX_STAGGER) if icons else HEIGHT
+                icon = placed[id(message)] = [0, y, message]
+            icons.append(icon)
 
         for icon in leaving:
             icon[1] += INBOX_SLIDE_SPEED
         leaving = [icon for icon in leaving if icon[1] < HEIGHT]
 
-        for i, message in enumerate(visible):
-            icon = placed[id(message)]
-            icon[1] = max(INBOX_Y, icon[1] - INBOX_SLIDE_SPEED)
-            # Wait for leaving icons to sink out before closing the gap they leave
-            if not leaving:
-                icon[0] = max(i * INBOX_SLOT_WIDTH, icon[0] - INBOX_SHIFT_SPEED)
+        shifting = False
+        for i, icon in enumerate(icons):
+            slot_x = row_x + i * INBOX_SLOT_WIDTH
+            if icon[1] >= HEIGHT:
+                # Below the display, so it can take its slot unseen
+                icon[0] = slot_x
+            elif not leaving:
+                icon[0] += max(-INBOX_SHIFT_SPEED, min(INBOX_SHIFT_SPEED, slot_x - icon[0]))
+            shifting = shifting or icon[0] != slot_x
+
+        for icon in icons:
+            # Icons already rising keep going; waiting ones hold until the row has settled
+            if icon[1] < HEIGHT or not (leaving or shifting):
+                icon[1] = max(INBOX_Y, icon[1] - INBOX_SLIDE_SPEED)
 
         graphics.set_pen(BLACK)
         graphics.clear()
@@ -931,14 +940,20 @@ async def inbox_animation():
 
         for x, y, message in leaving:
             draw_icon(graphics, inbox_icon(message), x, y)
-        for message in visible:
-            x, y, _ = placed[id(message)]
+        for x, y, message in icons:
             draw_icon(graphics, inbox_icon(message), x, y)
 
         unicorn.update(graphics)
 
         if count == 0 and not leaving:
             break
+
+def inbox_row_x(count):
+    """x of the first of count icons: centered with INBOX_CENTER, otherwise at the left edge. A full row fills the display."""
+    if not INBOX_CENTER:
+        return 0
+    width = count * INBOX_SLOT_WIDTH - (INBOX_SLOT_WIDTH - INBOX_ICON_WIDTH)
+    return max(0, (WIDTH - width) // 2)
 
 def is_message_expired(message):
     expires_ms = message.get('expires_ms')
