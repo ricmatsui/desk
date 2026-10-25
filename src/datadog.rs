@@ -195,6 +195,7 @@ impl Datadog {
                     icon: Some("siren".to_string()),
                     ttl: None,
                     id: Some(INBOX_MESSAGE_ID.to_string()),
+                    sound: None,
                 })
             } else {
                 crate::BrokerMessage::RemoveMessage(INBOX_MESSAGE_ID.to_string())

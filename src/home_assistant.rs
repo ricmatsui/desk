@@ -155,7 +155,8 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
         //   "read": false,
         //   "icon": "calendar",
         //   "ttl": 3600,
-        //   "id": "datadog"
+        //   "id": "datadog",
+        //   "sound": "meow"
         // }
         tracing::info!("message {:?}", message.payload);
 
@@ -174,6 +175,7 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
                     icon: message.payload["icon"].as_str().map(|i| i.to_string()),
                     ttl: message.payload["ttl"].as_u64(),
                     id: message.payload["id"].as_str().map(|i| i.to_string()),
+                    sound: message.payload["sound"].as_str().map(|s| s.to_string()),
                 }),
             })
             .await

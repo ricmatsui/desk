@@ -1,3 +1,31 @@
+diff --git a/src/core/audio.rs b/src/core/audio.rs
+--- a/src/core/audio.rs
++++ b/src/core/audio.rs
+@@ -291,6 +291,24 @@
+         let w = unsafe { ffi::LoadWave(c_filename.as_ptr()) };
+         if w.data.is_null() {
+             return Err(format!("Cannot load wave {}", filename));
++        }
++        Ok(Wave(w))
++    }
++
++    /// Loads wave data from a memory buffer into RAM.
++    /// `file_type` refers to the extension, e.g. ".mp3".
++    #[inline]
++    pub fn load_wave_from_memory(file_type: &str, file_data: &[u8]) -> Result<Wave, String> {
++        let c_file_type = CString::new(file_type).unwrap();
++        let w = unsafe {
++            ffi::LoadWaveFromMemory(
++                c_file_type.as_ptr(),
++                file_data.as_ptr(),
++                file_data.len() as i32,
++            )
++        };
++        if w.data.is_null() {
++            return Err(format!("Cannot load wave from memory. Is it the right type?"));
+         }
+         Ok(Wave(w))
+     }
 diff --git a/src/core/text.rs b/src/core/text.rs
 index a3a55a6..1c48a6f 100644
 --- a/src/core/text.rs

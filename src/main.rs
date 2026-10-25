@@ -13,6 +13,8 @@ mod macropad;
 mod raylib_manager;
 mod restarting_manager;
 mod serial_sink;
+mod sounds;
+mod speaker;
 mod thinkink;
 mod toggl;
 mod unicorn;
@@ -47,6 +49,7 @@ pub struct Message {
     pub icon: Option<String>,
     pub ttl: Option<u64>,
     pub id: Option<String>,
+    pub sound: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +72,7 @@ pub struct CalendarEventUpcoming {
 pub enum RaylibRequest {
     RenderThinkInkImage,
     ShowDashboard(Option<apps::dashboard::Dashboard>),
+    PlaySound(String),
 }
 
 pub enum RaylibResponse {
@@ -164,6 +168,10 @@ async fn tokio_main(
         Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
         Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
         Box::new(restarting!(
+            speaker::Speaker,
+            (broker_ref, raylib_manager_ref)
+        )),
+        Box::new(restarting!(
             datadog::Datadog,
             (broker_ref, raylib_manager_ref, backlight_manager_ref)
         )),
@@ -181,6 +189,7 @@ fn raylib_main(
     mut raylib_receive: tokio::sync::mpsc::Receiver<RaylibRequest>,
 ) {
     let (mut rl, thread) = raylib::init().size(240, 240).title("Desk").build();
+    let mut sounds = sounds::Sounds::load();
 
     let mut dashboard = None;
 
@@ -191,6 +200,11 @@ fn raylib_main(
             }
             RaylibRequest::ShowDashboard(next_dashboard) => {
                 dashboard = next_dashboard;
+            }
+            RaylibRequest::PlaySound(name) => {
+                sounds.play(&name);
+                // Playing leaves the frame untouched, so skip the redraw
+                continue;
             }
         }
 

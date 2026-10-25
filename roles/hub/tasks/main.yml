@@ -86,7 +86,33 @@
       #dtparam=backlight-gpio=13
 
       dtoverlay=pwm,pin=13,func=4
+
+      # Pirate Audio DAC, with the speaker amp enabled on GPIO 25
+      dtoverlay=hifiberry-dac
+      gpio=25=op,dh
   notify: hub_reboot
+  tags:
+    - audio
+
+# The USB boards also register sound cards, so pin the default to the DAC
+- name: configure audio
+  ansible.builtin.copy:
+    dest: /etc/asound.conf
+    content: |
+      pcm.!default {
+          type plug
+          slave.pcm "hw:sndrpihifiberry"
+      }
+      ctl.!default {
+          type hw
+          card sndrpihifiberry
+      }
+    owner: root
+    group: root
+    mode: 'u=rw,g=r,o=r'
+  notify: hub_restart
+  tags:
+    - audio
 
 - name: configure xorg
   ansible.builtin.copy:

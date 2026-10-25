@@ -41,6 +41,23 @@ impl Message<ShowDashboard> for RaylibManager {
     }
 }
 
+pub struct PlaySound(pub String);
+
+impl Message<PlaySound> for RaylibManager {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        message: PlaySound,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.transmit
+            .send(crate::RaylibRequest::PlaySound(message.0))
+            .await
+            .unwrap();
+    }
+}
+
 pub struct RenderThinkInkImage;
 
 impl Message<RenderThinkInkImage> for RaylibManager {
