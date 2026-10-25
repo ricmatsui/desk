@@ -31,6 +31,13 @@ INBOX_SLIDE_SPEED = 1
 INBOX_SHIFT_SPEED = 1
 INBOX_STAGGER = 10
 INBOX_Y = -2
+MESSAGE_ICON_GAP = 7
+MESSAGE_ICON_TRIO = True
+MESSAGE_TRIO_STAGGER = 0
+MESSAGE_TRIO_SPACING = 9
+MESSAGE_TRIO_TEXT_SPACING = 10
+MESSAGE_TRIO_PAUSE = 20
+MESSAGE_ICON_PUSH = True
 
 unicorn = GalacticUnicorn()
 graphics = PicoGraphics(DISPLAY)
@@ -989,6 +996,7 @@ async def message_animation(message):
 
     text = message['text']
     read = message['read']
+    icon = inbox_icon(message)
 
     enable_rainbow = 'rainbow' in message['effects']
 
@@ -996,12 +1004,38 @@ async def message_animation(message):
 
     sleep_reset()
 
-    w = graphics.measure_text(text, scale=1, spacing=2)
+    # The icon leads the text
+    text_x = INBOX_ICON_WIDTH + MESSAGE_ICON_GAP
+    text_width = graphics.measure_text(text, scale=1, spacing=2)
 
-    x = 0
-    y = 11
+    # [x, y] of each icon. The text follows the last icon at its y, drawn at text_left, or hidden while that is None.
+    if MESSAGE_ICON_TRIO:
+        # Centred, MESSAGE_TRIO_SPACING apart, each starting further below so they rise staggered
+        center_x = (WIDTH - INBOX_ICON_WIDTH) // 2
+        icons = [[center_x + (i - 1) * (INBOX_ICON_WIDTH + MESSAGE_TRIO_SPACING), 11 + i * MESSAGE_TRIO_STAGGER] for i in range(3)]
+    elif MESSAGE_ICON_PUSH:
+        icons = [[(WIDTH - INBOX_ICON_WIDTH) // 2, 11]]
+    else:
+        icons = [[0, 11]]
+    text_left = None if MESSAGE_ICON_TRIO or MESSAGE_ICON_PUSH else icons[-1][0] + text_x
+    y = icons[-1][1]
 
     frame = 0
+
+    def draw():
+        graphics.set_pen(BLACK)
+        graphics.clear()
+        graphics.set_pen(WHITE)
+        for icon_x, icon_y in icons:
+            draw_icon(graphics, icon, icon_x, icon_y)
+        if text_left is not None:
+            graphics.text(text, text_left, y, scale=1, spacing=2)
+
+        if enable_rainbow:
+            apply_rainbow(frame)
+
+        unicorn.update(graphics)
+
     remainder = 0
     while y > -2:
         await sleep_frame()
@@ -1011,22 +1045,42 @@ async def message_animation(message):
 
         if remainder == 2:
             remainder = 0
-            y -= 1
+            for each in icons:
+                each[1] = max(-2, each[1] - 1)
+            y = icons[-1][1]
 
-        graphics.set_pen(BLACK)
-        graphics.clear()
-        graphics.set_pen(WHITE)
-        graphics.text(text, x, y, scale=1, spacing=2)
+        draw()
 
-        if enable_rainbow:
-            apply_rainbow(frame)
+    if MESSAGE_ICON_TRIO:
+        pause = MESSAGE_TRIO_PAUSE
+        while pause > 0:
+            await sleep_frame()
 
-        unicorn.update(graphics)
+            frame += 1
+            pause -= 1
+
+            draw()
+
+        # Waits off the right edge, to scroll in behind the icons
+        text_left = max(icons[-1][0] + text_x, WIDTH) + MESSAGE_TRIO_TEXT_SPACING
+
+    elif MESSAGE_ICON_PUSH:
+        # The text slides in from the right edge and pushes the icon along once it is a gap away
+        text_left = WIDTH
+        while text_left > text_x:
+            await sleep_frame()
+
+            frame += 2
+            text_left -= 1
+            icons[0][0] = min(icons[0][0], text_left - text_x)
+
+            draw()
 
     if not read:
         add_inbox_message(message)
 
-    if HOLD_ENABLE:
+    # Pushed and trio messages keep moving straight into the scroll-off
+    if HOLD_ENABLE and not (MESSAGE_ICON_TRIO or MESSAGE_ICON_PUSH):
         hold = HOLD_TIME
         while hold > 0:
             await sleep_frame()
@@ -1034,31 +1088,17 @@ async def message_animation(message):
             frame += 1
             hold -= 1
 
-            graphics.set_pen(BLACK)
-            graphics.clear()
-            graphics.set_pen(WHITE)
-            graphics.text(text, x, y, scale=1, spacing=2)
+            draw()
 
-            if enable_rainbow:
-                apply_rainbow(frame)
-
-            unicorn.update(graphics)
-
-    while x > -w:
+    while text_left > -text_width:
         await sleep_frame()
 
         frame += 2
-        x -= 1
+        for each in icons:
+            each[0] -= 1
+        text_left -= 1
 
-        graphics.set_pen(BLACK)
-        graphics.clear()
-        graphics.set_pen(WHITE)
-        graphics.text(text, x, y, scale=1, spacing=2)
-
-        if enable_rainbow:
-            apply_rainbow(frame)
-
-        unicorn.update(graphics)
+        draw()
 
     enqueue_animation(inbox_animation(), priority=3)
 
