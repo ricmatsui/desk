@@ -14,4 +14,8 @@ const deploy = () => {
     sh(`poetry run ansible-playbook playbook.yml ${rawArgs().join(' ')}`, { nopipe: true });
 }
 
-cli({ run, setup, deploy });
+const unicornEmulator = () => {
+    sh('unicorn/.venv/bin/python unicorn/emulator/emulator.py', { nopipe: true });
+}
+
+cli({ run, setup, deploy, unicornEmulator });
