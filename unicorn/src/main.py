@@ -227,8 +227,21 @@ async def message(request):
     if ttl is not None:
         message['expires_ms'] = time.ticks_add(time.ticks_ms(), int(ttl) * 1000)
 
+    # Updates an inbox message with the same id quietly instead of playing it again
+    if replace_inbox_message(message):
+        return 'replaced'
+
     enqueue_animation(message_animation(message), priority=1)
     return 'message'
+
+@server.route("/remove-message", methods=["GET"])
+async def remove_message(request):
+    message = find_inbox_message(request.args['id'])
+    if message is not None:
+        # Expiring it lets the inbox animation drop it out
+        message['expires_ms'] = time.ticks_ms()
+        enqueue_animation(inbox_animation(), priority=3)
+    return 'removed'
 
 @server.route("/clear-inbox", methods=["GET"])
 async def clear_inbox(request):
@@ -817,6 +830,18 @@ CAT = bytearray([
     0b00000011,0b11111000,
     0b00000000,0b00000000, # Cat
 ])
+SIREN = bytearray([
+    0b00000000,0b10000000,
+    0b00001110,0b00010000,
+    0b00001011,0b11000000,
+    0b00001010,0b00100000,
+    0b00001011,0b00101000,
+    0b00001010,0b00100000,
+    0b00001011,0b11000000,
+    0b00001110,0b00010000,
+    0b00000000,0b10000000,
+    0b00000000,0b00000000, # Siren
+])
 
 ICONS = {
     'calendar': CALENDAR,
@@ -824,6 +849,7 @@ ICONS = {
     'clock': CLOCK,
     'envelope': ENVELOPE,
     'flag': FLAG,
+    'siren': SIREN,
     'timer': TIMER,
 }
 
@@ -918,6 +944,28 @@ def is_message_expired(message):
     expires_ms = message.get('expires_ms')
     return expires_ms is not None and time.ticks_diff(expires_ms, time.ticks_ms()) <= 0
 
+def add_inbox_message(message):
+    if not replace_inbox_message(message):
+        message_inbox.append(message)
+
+def replace_inbox_message(message):
+    """Replaces the inbox message with the same id in place, so its icon keeps its position. Returns whether one was found."""
+    existing = find_inbox_message(message.get('id'))
+    if existing is None:
+        return False
+    existing.clear()
+    existing.update(message)
+    return True
+
+def find_inbox_message(id):
+    """The unexpired inbox message with this id, if any. An expired one is on its way out, so a new one is added instead."""
+    if id is None:
+        return None
+    for message in message_inbox:
+        if message.get('id') == id and not is_message_expired(message):
+            return message
+    return None
+
 def inbox_icon(message):
     return ICONS.get(message.get('icon'), ENVELOPE)
 
@@ -961,7 +1009,7 @@ async def message_animation(message):
         unicorn.update(graphics)
 
     if not read:
-        message_inbox.append(message)
+        add_inbox_message(message)
 
     if HOLD_ENABLE:
         hold = HOLD_TIME

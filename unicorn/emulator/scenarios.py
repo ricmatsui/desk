@@ -66,6 +66,21 @@ async def expire_with_overflow():
     seed(6, ttls={1: 3})
 
 
+async def remove_by_id():
+    seed(2)
+    await call("message", json=message("Lorem ipsum +2", icon="siren", id="datadog"))
+    await until_in_inbox("datadog")
+    await wait(1500)
+    await call("remove_message", args={"id": "datadog"})
+
+
+async def replace_by_id():
+    await call("message", json=message("Lorem ipsum", icon="siren", id="datadog"))
+    await until_in_inbox("datadog")
+    await wait(1000)
+    await call("message", json=message("Dolor sit amet", icon="siren", id="datadog"))
+
+
 async def replay_slide_in():
     runtime.main.enqueue_animation(runtime.main.inbox_animation(), priority=3)
 
@@ -81,6 +96,8 @@ SCENARIOS = [
     Scenario("ttl", "Message with TTL", "8s TTL from arrival: message plays, its icon slides in, then drops out.", message_with_ttl),
     Scenario("expire-middle", "Expire middle", "Seed 3, the middle with a 3s TTL: it sinks, then the last shifts left.", expire_middle),
     Scenario("expire-overflow", "Expire with overflow", "Seed 6, the 2nd with a 3s TTL: after it sinks the rest shift left and the 6th slides in from the right.", expire_with_overflow),
+    Scenario("remove", "Remove by id", "Seed 2, a siren with id datadog arrives, then is removed: it drops out like an expiry.", remove_by_id),
+    Scenario("replace", "Replace by id", "A siren with id datadog arrives, then another with the same id replaces it quietly, without playing.", replace_by_id),
     Scenario("replay", "Replay slide-in", "Re-slide the current inbox from the bottom.", replay_slide_in),
 ]
 
@@ -104,8 +121,8 @@ def seed(count, ttls=None):
     main.enqueue_animation(main.inbox_animation(), priority=3)
 
 
-def message(text, icon=None, rainbow=False, read=False, ttl=None):
-    return {"text": text, "icon": icon, "effects": ["rainbow"] if rainbow else [], "read": read, "ttl": ttl}
+def message(text, icon=None, rainbow=False, read=False, ttl=None, id=None):
+    return {"text": text, "icon": icon, "effects": ["rainbow"] if rainbow else [], "read": read, "ttl": ttl, "id": id}
 
 
 async def call(route, args=None, json=None):
@@ -116,6 +133,11 @@ async def call(route, args=None, json=None):
 
 async def wait(ms):
     await runtime.clock.sleep_ms(ms)
+
+
+async def until_in_inbox(id):
+    while not any(m.get("id") == id for m in runtime.main.message_inbox):
+        await asyncio.sleep(0.01)
 
 
 async def until_playing(name):

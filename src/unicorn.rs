@@ -137,6 +137,7 @@ impl Message<crate::BrokerMessage> for Unicorn {
                         "read": message.read,
                         "icon": message.icon,
                         "ttl": message.ttl,
+                        "id": message.id,
                     }))
                     .send()
                     .await
@@ -160,6 +161,18 @@ impl Message<crate::BrokerMessage> for Unicorn {
 
                 self.client
                     .get(self.base_url.join("/clear-inbox").unwrap())
+                    .send()
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+            }
+            crate::BrokerMessage::RemoveMessage(id) => {
+                tracing::info!("remove message {}", id);
+
+                self.client
+                    .get(self.base_url.join("/remove-message").unwrap())
+                    .query(&[("id", id)])
                     .send()
                     .await
                     .unwrap()

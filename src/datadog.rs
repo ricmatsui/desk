@@ -1,5 +1,6 @@
 use kameo::error::Infallible;
 use kameo::prelude::*;
+use kameo_actors::broker;
 
 use crate::apps::dashboard::{Dashboard, Monitor, Status};
 use crate::backlight;
@@ -8,14 +9,17 @@ use crate::restarting_manager;
 
 const MONITOR_QUERY: &str = "status:(alert OR warn OR \"no data\") muted:false";
 const OFFLINE_FAILURES: u32 = 3;
+const INBOX_MESSAGE_ID: &str = "datadog";
 
 pub struct Datadog {
     client: reqwest::Client,
+    broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
     raylib_manager_ref: ActorRef<raylib_manager::RaylibManager>,
     backlight_manager_ref: ActorRef<restarting_manager::RestartingManager<backlight::Backlight>>,
     dashboard: Dashboard,
     display: Display,
     backlight_requested: bool,
+    siren_in_inbox: bool,
     failures: u32,
 }
 
@@ -29,6 +33,7 @@ enum Display {
 
 impl Actor for Datadog {
     type Args = (
+        ActorRef<broker::Broker<crate::BrokerMessage>>,
         ActorRef<raylib_manager::RaylibManager>,
         ActorRef<restarting_manager::RestartingManager<backlight::Backlight>>,
     );
@@ -39,7 +44,7 @@ impl Actor for Datadog {
     }
 
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let (raylib_manager_ref, backlight_manager_ref) = state;
+        let (broker_ref, raylib_manager_ref, backlight_manager_ref) = state;
 
         let mut headers = reqwest::header::HeaderMap::new();
 
@@ -74,11 +79,13 @@ impl Actor for Datadog {
 
         Ok(Self {
             client,
+            broker_ref,
             raylib_manager_ref,
             backlight_manager_ref,
             dashboard: Dashboard::default(),
             display: Display::Off,
             backlight_requested: false,
+            siren_in_inbox: false,
             failures: 0,
         })
     }
@@ -140,8 +147,9 @@ impl Message<Tick> for Datadog {
 }
 
 impl Datadog {
-    /// Draws the dashboard for the display and requests or releases the backlight to match,
-    /// keeping requests and releases balanced
+    /// Draws the dashboard for the display, requests or releases the backlight, and adds or removes
+    /// the siren in the unicorn inbox to match, keeping each balanced. The siren is only sent on
+    /// entering the failing display, so reading the inbox acknowledges it until the next failure.
     async fn update_display(&mut self, display: Display) -> Result<(), ()> {
         if display == Display::Off && self.display == Display::Off {
             return Ok(());
@@ -174,6 +182,33 @@ impl Datadog {
             }
 
             self.backlight_requested = enabled;
+        }
+
+        let failing = display == Display::Failing;
+
+        if failing != self.siren_in_inbox {
+            let message = if failing {
+                crate::BrokerMessage::Message(crate::Message {
+                    text: alert_text(&self.dashboard),
+                    effects: Vec::new(),
+                    read: false,
+                    icon: Some("siren".to_string()),
+                    ttl: None,
+                    id: Some(INBOX_MESSAGE_ID.to_string()),
+                })
+            } else {
+                crate::BrokerMessage::RemoveMessage(INBOX_MESSAGE_ID.to_string())
+            };
+
+            self.broker_ref
+                .tell(broker::Publish {
+                    topic: "message".parse().unwrap(),
+                    message,
+                })
+                .await
+                .map_err(|_| ())?;
+
+            self.siren_in_inbox = failing;
         }
 
         Ok(())
@@ -223,6 +258,19 @@ impl Datadog {
         });
 
         Ok(monitors)
+    }
+}
+
+/// The worst monitor's name with a count of the others, or Offline when Datadog cannot be reached
+fn alert_text(dashboard: &Dashboard) -> String {
+    if dashboard.offline.is_some() {
+        return "Offline".to_string();
+    }
+
+    match dashboard.monitors.split_first() {
+        Some((worst, [])) => worst.name.clone(),
+        Some((worst, others)) => format!("{} +{}", worst.name, others.len()),
+        None => String::new(),
     }
 }
 

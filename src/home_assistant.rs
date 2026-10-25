@@ -154,7 +154,8 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
         //   "effects": ["rainbow"]
         //   "read": false,
         //   "icon": "calendar",
-        //   "ttl": 3600
+        //   "ttl": 3600,
+        //   "id": "datadog"
         // }
         tracing::info!("message {:?}", message.payload);
 
@@ -172,6 +173,7 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
                     read: message.payload["read"].as_bool().unwrap_or(false),
                     icon: message.payload["icon"].as_str().map(|i| i.to_string()),
                     ttl: message.payload["ttl"].as_u64(),
+                    id: message.payload["id"].as_str().map(|i| i.to_string()),
                 }),
             })
             .await

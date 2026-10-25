@@ -44,6 +44,7 @@
   button:hover { border-color: #444a52; }
   button.active { background: var(--accent); color: #111; border-color: var(--accent); }
   input[type=text] { width: 100%; }
+  label input[type=text] { width: 80px; }
   input[type=number] { width: 70px; }
 
   .display {
@@ -143,6 +144,7 @@
           <label><input type="checkbox" name="rainbow">Rainbow</label>
           <label><input type="checkbox" name="read">Read</label>
           <label>TTL <input type="number" name="ttl" min="0" placeholder="none"> s</label>
+          <label>ID <input type="text" name="id" placeholder="none"></label>
           <span class="spacer"></span>
           <button type="submit">Message</button>
         </div>
@@ -153,6 +155,12 @@
         <button data-route="/cancel-animation">Cancel</button>
         <button data-route="/stop">Stop</button>
       </div>
+      <hr>
+      <form id="remove-form" class="row">
+        <label>ID <input type="text" name="id" value="datadog" required></label>
+        <span class="spacer"></span>
+        <button type="submit">Remove</button>
+      </form>
       <hr>
       <div class="row">
         <label>Seed <input type="number" id="seed-count" value="3" min="0" max="20"></label>
@@ -336,7 +344,14 @@ function setupActions() {
       effects: form.get("rainbow") ? ["rainbow"] : [],
       read: Boolean(form.get("read")),
       ttl: form.get("ttl") === "" ? null : Number(form.get("ttl")),
+      id: form.get("id") || null,
     });
+  };
+
+  $("remove-form").onsubmit = (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    fetch(`/remove-message?id=${encodeURIComponent(form.get("id"))}`);
   };
 
   document.querySelectorAll("[data-route]").forEach((button) => {

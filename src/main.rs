@@ -32,6 +32,7 @@ pub enum BrokerMessage {
     Message(Message),
     ReadInbox,
     ClearInbox,
+    RemoveMessage(String),
     StartClock,
     ServoX(u32),
     ServoY(u32),
@@ -46,6 +47,7 @@ pub struct Message {
     pub read: bool,
     pub icon: Option<String>,
     pub ttl: Option<u64>,
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -165,7 +167,7 @@ async fn tokio_main(
         Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
         Box::new(restarting!(
             datadog::Datadog,
-            (raylib_manager_ref, backlight_manager_ref)
+            (broker_ref, raylib_manager_ref, backlight_manager_ref)
         )),
     ];
 
