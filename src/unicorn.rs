@@ -39,14 +39,6 @@ impl Actor for Unicorn {
 
         broker_ref
             .tell(broker::Subscribe {
-                topic: "clock".parse().unwrap(),
-                recipient: actor_ref.clone().recipient(),
-            })
-            .await
-            .unwrap();
-
-        broker_ref
-            .tell(broker::Subscribe {
                 topic: "countdown".parse().unwrap(),
                 recipient: actor_ref.clone().recipient(),
             })
@@ -55,13 +47,59 @@ impl Actor for Unicorn {
 
         Ok(Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap(),
             base_url: reqwest::Url::parse(&std::env::var("UNICORN_BASE_URL").unwrap()).unwrap(),
             schedule: Vec::new(),
             wake_task: None,
         })
+    }
+}
+
+/// Commands whose caller waits for the unicorn to confirm them
+#[derive(Debug)]
+pub enum Command {
+    ReadInbox,
+    ClearInbox,
+    StartClock,
+    StartCountdown { minutes: i64 },
+    CancelAnimation,
+}
+
+impl Message<Command> for Unicorn {
+    type Reply = Result<(), UnicornError>;
+
+    async fn handle(
+        &mut self,
+        command: Command,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        tracing::info!("unicorn command: {:?}", command);
+
+        match command {
+            Command::ReadInbox => self.send(self.client.get(self.url("/read-inbox"))).await,
+            Command::ClearInbox => self.send(self.client.get(self.url("/clear-inbox"))).await,
+            Command::StartClock => {
+                let now = chrono::Local::now();
+
+                self.send(self.client.get(self.url("/start-clock")).query(&[(
+                    "start_timestamp",
+                    (now.hour() * 3600 + now.minute() * 60 + now.second()).to_string(),
+                )]))
+                .await
+            }
+            Command::StartCountdown { minutes } => {
+                self.send(self.client.get(self.url("/countdown")).query(&[
+                    ("seconds", (minutes * 60).to_string()),
+                    ("icon", "timer".to_string()),
+                ]))
+                .await
+            }
+            Command::CancelAnimation => {
+                self.send(self.client.get(self.url("/cancel-animation"))).await
+            }
+        }
     }
 }
 
@@ -81,119 +119,37 @@ impl Message<crate::BrokerMessage> for Unicorn {
                 add_calendar_event(&mut self.schedule, event.start_at, event.end_at, now);
                 self.process_schedule(context.actor_ref()).await;
             }
-            crate::BrokerMessage::StartCountdown(minutes) => {
-                tracing::info!("unicorn message: {:?}", minutes);
-
-                self.client
-                    .get(self.base_url.join("/countdown").unwrap())
-                    .query(&[
-                        ("seconds", (minutes * 60).to_string()),
-                        ("icon", "timer".to_string()),
-                    ])
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
-            }
-
-            crate::BrokerMessage::CancelAnimation => {
-                tracing::info!("unicorn: stopping countdown");
-
-                self.client
-                    .get(self.base_url.join("/cancel-animation").unwrap())
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
-            }
             crate::BrokerMessage::StartTimestampCountdown(timestamp) => {
                 tracing::info!("unicorn message: {:?}", timestamp);
 
-                self.client
-                    .get(self.base_url.join("/countdown").unwrap())
-                    .query(&[
-                        ("timestamp", timestamp.to_string()),
-                        ("icon", "timer".to_string()),
-                    ])
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                self.send(self.client.get(self.url("/countdown")).query(&[
+                    ("timestamp", timestamp.to_string()),
+                    ("icon", "timer".to_string()),
+                ]))
+                .await
+                .unwrap();
             }
-
             crate::BrokerMessage::Message(message) => {
                 tracing::info!("unicorn message: {:?}", message);
 
                 let text = any_ascii::any_ascii(&message.text);
 
-                self.client
-                    .post(self.base_url.join("/message").unwrap())
-                    .json(&serde_json::json!({
-                        "text": text,
-                        "effects": message.effects,
-                        "read": message.read,
-                        "icon": message.icon,
-                        "ttl": message.ttl,
-                        "id": message.id,
-                    }))
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
-            }
-            crate::BrokerMessage::ReadInbox => {
-                tracing::info!("read inbox");
-
-                self.client
-                    .get(self.base_url.join("/read-inbox").unwrap())
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
-            }
-            crate::BrokerMessage::ClearInbox => {
-                tracing::info!("clear inbox");
-
-                self.client
-                    .get(self.base_url.join("/clear-inbox").unwrap())
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                self.send(self.client.post(self.url("/message")).json(&serde_json::json!({
+                    "text": text,
+                    "effects": message.effects,
+                    "read": message.read,
+                    "icon": message.icon,
+                    "ttl": message.ttl,
+                    "id": message.id,
+                })))
+                .await
+                .unwrap();
             }
             crate::BrokerMessage::RemoveMessage(id) => {
                 tracing::info!("remove message {}", id);
 
-                self.client
-                    .get(self.base_url.join("/remove-message").unwrap())
-                    .query(&[("id", id)])
-                    .send()
+                self.send(self.client.get(self.url("/remove-message")).query(&[("id", id)]))
                     .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
-            }
-            crate::BrokerMessage::StartClock => {
-                tracing::info!("start clock");
-
-                let now = chrono::Local::now();
-
-                self.client
-                    .get(self.base_url.join("/start-clock").unwrap())
-                    .query(&[(
-                        "start_timestamp",
-                        (now.hour() * 3600 + now.minute() * 60 + now.second()).to_string(),
-                    )])
-                    .send()
-                    .await
-                    .unwrap()
-                    .error_for_status()
                     .unwrap();
             }
             _ => {}
@@ -250,19 +206,33 @@ impl Unicorn {
         };
 
         tracing::info!("unicorn schedule: send {} to {:?}", icon, target);
-        self.client
-            .get(self.base_url.join("/countdown").unwrap())
-            .query(&[
-                ("timestamp", target.timestamp().to_string()),
-                ("icon", icon.to_string()),
-            ])
+        self.send(self.client.get(self.url("/countdown")).query(&[
+            ("timestamp", target.timestamp().to_string()),
+            ("icon", icon.to_string()),
+        ]))
+        .await
+        .unwrap();
+    }
+
+    fn url(&self, path: &str) -> reqwest::Url {
+        self.base_url.join(path).unwrap()
+    }
+
+    async fn send(&self, request: reqwest::RequestBuilder) -> Result<(), UnicornError> {
+        request
             .send()
             .await
-            .unwrap()
-            .error_for_status()
-            .unwrap();
+            .and_then(|response| response.error_for_status())
+            .map(|_| ())
+            .map_err(|error| {
+                tracing::error!("unicorn request failed: {}", error);
+                UnicornError
+            })
     }
 }
+
+#[derive(Debug)]
+pub struct UnicornError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ScheduledAction {

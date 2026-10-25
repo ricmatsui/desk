@@ -91,7 +91,14 @@ def clear_pixels():
     macropad.pixels.fill(0x000000)
     macropad.pixels.show()
 
+command_id = 0
+
 def send_message(message):
+    global command_id
+
+    command_id += 1
+    message['id'] = command_id
+
     message_json = json.dumps(message)
     print('->', message_json)
     usb_cdc.data.write(bytes(message_json + '\n', 'utf-8'))
@@ -141,6 +148,10 @@ def get_message():
     print(f'<- {in_waiting:3}', json.dumps(message))
 
     if message['kind'] == 'heartbeat':
+        return None
+
+    if message.get('id') != command_id:
+        print('<- (stale)', json.dumps(message))
         return None
 
     return message

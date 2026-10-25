@@ -11,11 +11,13 @@ use tokio_util::codec::{Framed, LinesCodec};
 
 use crate::restarting_manager;
 use crate::toggl;
+use crate::unicorn;
 
 pub struct Macropad {
     transmit: Box<dyn crate::serial_sink::Sink>,
     broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
     toggl_manager_ref: ActorRef<restarting_manager::RestartingManager<toggl::Toggl>>,
+    unicorn_manager_ref: ActorRef<restarting_manager::RestartingManager<unicorn::Unicorn>>,
 }
 
 #[derive(Debug)]
@@ -25,6 +27,7 @@ impl Actor for Macropad {
     type Args = (
         ActorRef<broker::Broker<crate::BrokerMessage>>,
         ActorRef<restarting_manager::RestartingManager<toggl::Toggl>>,
+        ActorRef<restarting_manager::RestartingManager<unicorn::Unicorn>>,
     );
     type Error = MacropadError;
 
@@ -33,7 +36,7 @@ impl Actor for Macropad {
     }
 
     async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let (broker_ref, toggl_manager_ref) = state;
+        let (broker_ref, toggl_manager_ref, unicorn_manager_ref) = state;
 
         let tick_actor_ref = actor_ref.clone();
 
@@ -70,6 +73,7 @@ impl Actor for Macropad {
                 transmit: Box::new(serial_sink),
                 broker_ref,
                 toggl_manager_ref,
+                unicorn_manager_ref,
             })
         }
 
@@ -79,6 +83,7 @@ impl Actor for Macropad {
                 transmit: Box::new(crate::serial_sink::DummySink),
                 broker_ref,
                 toggl_manager_ref,
+                unicorn_manager_ref,
             })
         }
     }
@@ -168,64 +173,34 @@ impl Message<StreamMessage<Result<String, tokio_util::codec::LinesCodecError>, (
 impl Macropad {
     async fn process_command(&mut self, message: serde_json::Value) {
         let kind = message["kind"].as_str().unwrap();
+        let id = message["id"].clone();
 
         let result = match kind {
-            "getTimeEntries" => self.send_time_entries().await,
+            "getTimeEntries" => self.send_time_entries(&id).await,
             "startTimeEntry" => self.start_time_entry(message).await,
             "stopTimeEntry" => self.stop_time_entry().await,
             "continueTimeEntry" => self.continue_time_entry().await,
             "adjustTime" => self.adjust_time(message).await,
-            "readInbox" => self.read_inbox().await,
-            "clearInbox" => self.clear_inbox().await,
-            "startClock" => self.start_clock().await,
-            "startCountdown" => self.start_countdown(message).await,
-            "cancelAnimation" => self.cancel_animation().await,
+            "readInbox" => self.send_unicorn_command(unicorn::Command::ReadInbox).await,
+            "clearInbox" => self.send_unicorn_command(unicorn::Command::ClearInbox).await,
+            "startClock" => self.send_unicorn_command(unicorn::Command::StartClock).await,
+            "startCountdown" => {
+                self.send_unicorn_command(unicorn::Command::StartCountdown {
+                    minutes: message["minutes"].as_i64().unwrap(),
+                })
+                .await
+            }
+            "cancelAnimation" => self.send_unicorn_command(unicorn::Command::CancelAnimation).await,
             _ => panic!("Unknown message kind: {}", kind),
         };
 
         match result {
-            Ok(_) => self.send_success_message().await,
-            Err(_) => self.send_error_message().await,
+            Ok(_) => self.send_success_message(&id).await,
+            Err(_) => self.send_error_message(&id).await,
         }
     }
 
-    async fn read_inbox(&mut self) -> Result<(), ()> {
-        self.broker_ref
-            .tell(broker::Publish {
-                topic: "message".parse().unwrap(),
-                message: crate::BrokerMessage::ReadInbox,
-            })
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
-    }
-
-    async fn clear_inbox(&mut self) -> Result<(), ()> {
-        self.broker_ref
-            .tell(broker::Publish {
-                topic: "message".parse().unwrap(),
-                message: crate::BrokerMessage::ClearInbox,
-            })
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
-    }
-
-    async fn start_clock(&mut self) -> Result<(), ()> {
-        self.broker_ref
-            .tell(broker::Publish {
-                topic: "clock".parse().unwrap(),
-                message: crate::BrokerMessage::StartClock,
-            })
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
-    }
-
-    async fn send_time_entries(&mut self) -> Result<(), ()> {
+    async fn send_time_entries(&mut self, id: &serde_json::Value) -> Result<(), ()> {
         let result = self
             .toggl_ref()
             .await?
@@ -243,6 +218,7 @@ impl Macropad {
         for description in descriptions {
             self.send_message(serde_json::json!({
                 "kind": "timeEntry",
+                "id": id,
                 "timeEntry": {
                     "description": description,
                 }
@@ -300,28 +276,12 @@ impl Macropad {
         Ok(())
     }
 
-    async fn start_countdown(&mut self, message: serde_json::Value) -> Result<(), ()> {
-        self.broker_ref
-            .tell(broker::Publish {
-                topic: "countdown".parse().unwrap(),
-                message: crate::BrokerMessage::StartCountdown(message["minutes"].as_i64().unwrap()),
-            })
+    async fn send_unicorn_command(&mut self, command: unicorn::Command) -> Result<(), ()> {
+        self.unicorn_ref()
+            .await?
+            .ask(command)
             .await
-            .map_err(|_| ())?;
-
-        Ok(())
-    }
-
-    async fn cancel_animation(&mut self) -> Result<(), ()> {
-        self.broker_ref
-            .tell(broker::Publish {
-                topic: "countdown".parse().unwrap(),
-                message: crate::BrokerMessage::CancelAnimation,
-            })
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
+            .map_err(|_| ())
     }
 
     async fn toggl_ref(&mut self) -> Result<ActorRef<toggl::Toggl>, ()> {
@@ -332,13 +292,21 @@ impl Macropad {
             .ok_or(())
     }
 
-    async fn send_success_message(&mut self) {
-        let reply = serde_json::json!({ "kind": "success" });
+    async fn unicorn_ref(&mut self) -> Result<ActorRef<unicorn::Unicorn>, ()> {
+        self.unicorn_manager_ref
+            .ask(restarting_manager::GetChild)
+            .await
+            .map_err(|_| ())?
+            .ok_or(())
+    }
+
+    async fn send_success_message(&mut self, id: &serde_json::Value) {
+        let reply = serde_json::json!({ "kind": "success", "id": id });
         self.send_message(reply).await;
     }
 
-    async fn send_error_message(&mut self) {
-        let reply = serde_json::json!({ "kind": "error" });
+    async fn send_error_message(&mut self, id: &serde_json::Value) {
+        let reply = serde_json::json!({ "kind": "error", "id": id });
         self.send_message(reply).await;
     }
 

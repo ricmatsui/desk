@@ -27,14 +27,9 @@ pub enum BrokerMessage {
     TimeEntryStopped,
     TimeEntryTimeUpdated(TimeEntryTimeUpdated),
     CalendarEventUpcoming(CalendarEventUpcoming),
-    StartCountdown(i64),
-    CancelAnimation,
     StartTimestampCountdown(i64),
     Message(Message),
-    ReadInbox,
-    ClearInbox,
     RemoveMessage(String),
-    StartClock,
     ServoX(u32),
     ServoY(u32),
     StartFireworks,
@@ -149,22 +144,23 @@ async fn tokio_main(
 
     let toggl_manager_ref = restarting!(toggl::Toggl, (broker_ref,));
     let backlight_manager_ref = restarting!(backlight::Backlight, ());
+    let unicorn_manager_ref = restarting!(unicorn::Unicorn, (broker_ref,));
 
     let actor_refs: Vec<Box<dyn WaitableActorRef>> = vec![
         Box::new(broker_ref.clone()),
         Box::new(raylib_manager_ref.clone()),
         Box::new(toggl_manager_ref.clone()),
         Box::new(backlight_manager_ref.clone()),
+        Box::new(unicorn_manager_ref.clone()),
         Box::new(restarting!(
             macropad::Macropad,
-            (broker_ref, toggl_manager_ref)
+            (broker_ref, toggl_manager_ref, unicorn_manager_ref)
         )),
         Box::new(restarting!(circuit_playground::CircuitPlayground, ())),
         Box::new(restarting!(
             thinkink::ThinkInk,
             (broker_ref, raylib_manager_ref)
         )),
-        Box::new(restarting!(unicorn::Unicorn, (broker_ref,))),
         Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
         Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
         Box::new(restarting!(
