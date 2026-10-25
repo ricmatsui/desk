@@ -16,7 +16,6 @@ mod serial_sink;
 mod thinkink;
 mod toggl;
 mod unicorn;
-mod urban;
 mod fireworks;
 mod watchdog;
 
@@ -163,7 +162,6 @@ async fn tokio_main(
         )),
         Box::new(restarting!(unicorn::Unicorn, (broker_ref,))),
         Box::new(restarting!(home_assistant::HomeAssistant, (broker_ref,))),
-        Box::new(restarting!(urban::Urban, ())),
         Box::new(restarting!(fireworks::Fireworks, (broker_ref,))),
         Box::new(restarting!(
             datadog::Datadog,
