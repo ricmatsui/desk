@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unicorn Emulator</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e0f11;
+    --panel: #17191c;
+    --panel-2: #1e2125;
+    --line: #2a2e33;
+    --text: #e4e6e9;
+    --muted: #8b929b;
+    --accent: #f2c14e;
+    --ok: #5fd18b;
+    --bad: #ef6b6b;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  .spacer { flex: 1; }
+  button, select, input[type=text], input[type=number] {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: #444a52; }
+  button.active { background: var(--accent); color: #111; border-color: var(--accent); }
+  input[type=text] { width: 100%; }
+  input[type=number] { width: 70px; }
+
+  .display {
+    background: #050505;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  canvas { display: block; width: 100%; height: auto; }
+
+  .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 14px; }
+  .transport .group { display: flex; gap: 2px; }
+  .transport .group button { border-radius: 0; }
+  .transport .group button:first-child { border-radius: 6px 0 0 6px; }
+  .transport .group button:last-child { border-radius: 0 6px 6px 0; }
+  .readout { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .status {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .status dt { color: var(--muted); }
+  .status dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; min-height: 18px; }
+  .chip { padding: 1px 7px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
+  .chip.now { border-color: var(--accent); color: var(--accent); }
+  .none { color: #555b63; }
+
+  .columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+
+  .scenario { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+  .scenario small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .row label { display: flex; align-items: center; gap: 5px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+
+  .tunable { margin-bottom: 12px; }
+  .tunable .head { display: flex; align-items: baseline; gap: 6px; font-family: var(--mono); font-size: 12px; }
+  .tunable .value { margin-left: auto; color: var(--text); }
+  .tunable .unit { color: var(--muted); }
+  .tunable.modified .name { color: var(--accent); }
+  .tunable input[type=range] { width: 100%; accent-color: var(--accent); }
+  .tunable .reset { padding: 0 6px; font-size: 11px; visibility: hidden; }
+  .tunable.modified .reset { visibility: visible; }
+  kbd { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span id="connection" class="dot" title="Live connection"></span>
+    <h1>Unicorn emulator</h1>
+    <span class="spacer"></span>
+    <a href="/" class="readout">device controls</a>
+    <button id="restart" title="Re-exec the emulator (also happens automatically when sources change)">Restart</button>
+  </header>
+
+  <div class="display"><canvas id="display"></canvas></div>
+
+  <div class="transport">
+    <button id="play" title="Space">Pause</button>
+    <button id="step" title=".">Step frame</button>
+    <div class="group" id="speeds"></div>
+    <span class="spacer"></span>
+    <span class="readout" id="clock"></span>
+    <span class="readout"><kbd>space</kbd> pause <kbd>.</kbd> step <kbd>1–6</kbd> speed</span>
+  </div>
+
+  <dl class="status">
+    <dt>playing</dt><dd id="now"></dd>
+    <dt>queued</dt><dd id="queue"></dd>
+    <dt>inbox</dt><dd id="inbox"></dd>
+  </dl>
+
+  <div class="columns">
+    <section>
+      <h2>Scenarios</h2>
+      <div id="scenarios"></div>
+    </section>
+
+    <section>
+      <h2>Actions</h2>
+      <form id="message-form">
+        <div class="row"><input type="text" name="text" value="Lorem"></div>
+        <div class="row">
+          <select name="icon" id="icon-select"><option value="">(no icon)</option></select>
+          <label><input type="checkbox" name="rainbow">Rainbow</label>
+          <label><input type="checkbox" name="read">Read</label>
+          <span class="spacer"></span>
+          <button type="submit">Message</button>
+        </div>
+      </form>
+      <div class="row">
+        <button data-route="/read-inbox">Read inbox</button>
+        <button data-route="/clear-inbox">Clear inbox</button>
+        <button data-route="/cancel-animation">Cancel</button>
+        <button data-route="/stop">Stop</button>
+      </div>
+      <hr>
+      <div class="row">
+        <label>Seed <input type="number" id="seed-count" value="3" min="0" max="20"></label>
+        <span class="spacer"></span>
+        <button id="seed">Seed</button>
+      </div>
+      <hr>
+      <div class="row">
+        <label>Countdown <input type="number" id="countdown-seconds" value="10" min="0"> s</label>
+        <select id="countdown-icon">
+          <option>timer</option><option>calendar</option><option>flag</option>
+        </select>
+        <span class="spacer"></span>
+        <button id="countdown">Start</button>
+      </div>
+      <div class="row">
+        <button id="clock-start">Start clock</button>
+        <button data-route="/test">Test</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tunables</h2>
+      <div id="tunables"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("display");
+const context = canvas.getContext("2d");
+
+let config = null;
+let state = null;
+let instance = null;
+
+connect();
+
+function setup() {
+  setupDisplay();
+  setupTransport();
+  setupScenarios();
+  setupActions();
+  setupTunables();
+}
+
+// Live connection
+
+function connect() {
+  const socket = new WebSocket(`ws://${location.host}/emulator/live`);
+  socket.binaryType = "arraybuffer";
+  socket.onopen = () => $("connection").classList.add("on");
+  socket.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      drawFrame(new Uint8Array(event.data));
+      return;
+    }
+    const message = JSON.parse(event.data);
+    if (message.type === "hello") onHello(message);
+    else if (message.type === "state") renderState(message);
+  };
+  socket.onclose = () => {
+    $("connection").classList.remove("on");
+    setTimeout(connect, 500);
+  };
+}
+
+function onHello(hello) {
+  if (instance === null) {
+    instance = hello.instance;
+    config = hello.config;
+    setup();
+  } else if (hello.instance !== instance) {
+    // The emulator restarted: main.py, its defaults or this page may have changed
+    location.reload();
+  }
+}
+
+// Display
+
+const PITCH = 16;
+const LED_SIZE = 12;
+const LED_SHAPE = squircle(LED_SIZE);
+
+function setupDisplay() {
+  canvas.width = config.width * PITCH;
+  canvas.height = config.height * PITCH;
+  drawFrame(new Uint8Array(config.width * config.height * 3));
+}
+
+function drawFrame(frame) {
+  if (!config) return;
+  context.fillStyle = "#050505";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const inset = (PITCH - LED_SIZE) / 2;
+  for (let y = 0; y < config.height; y++) {
+    for (let x = 0; x < config.width; x++) {
+      const i = (y * config.width + x) * 3;
+      const r = frame[i], g = frame[i + 1], b = frame[i + 2];
+      context.fillStyle = r | g | b ? `rgb(${r},${g},${b})` : "#151515";
+      context.setTransform(1, 0, 0, 1, x * PITCH + inset, y * PITCH + inset);
+      context.fill(LED_SHAPE);
+    }
+  }
+  context.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// Superellipse |x|^4 + |y|^4 = 1 scaled to a size × size box at the origin
+function squircle(size, points = 48) {
+  const path = new Path2D();
+  const half = size / 2;
+  for (let i = 0; i < points; i++) {
+    const angle = (i / points) * Math.PI * 2;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const x = half + half * Math.sign(cos) * Math.sqrt(Math.abs(cos));
+    const y = half + half * Math.sign(sin) * Math.sqrt(Math.abs(sin));
+    if (i === 0) path.moveTo(x, y);
+    else path.lineTo(x, y);
+  }
+  path.closePath();
+  return path;
+}
+
+// Transport
+
+function setupTransport() {
+  $("play").onclick = () => setClock({ paused: !state?.clock.paused });
+  $("step").onclick = () => setClock({ step: true });
+  $("speeds").innerHTML = "";
+  SPEEDS.forEach((speed, i) => {
+    const button = document.createElement("button");
+    button.textContent = `${speed}×`;
+    button.title = String(i + 1);
+    button.dataset.speed = speed;
+    button.onclick = () => setClock({ speed });
+    $("speeds").append(button);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.target.matches("input, select, textarea")) return;
+    if (event.key === " ") { event.preventDefault(); $("play").click(); }
+    else if (event.key === ".") $("step").click();
+    else if (event.key >= "1" && event.key <= String(SPEEDS.length)) setClock({ speed: SPEEDS[event.key - 1] });
+  });
+  $("restart").onclick = () => post("/emulator/restart");
+}
+
+async function setClock(body) {
+  renderState(await postJSON("/emulator/clock", body));
+}
+
+// Scenarios
+
+function setupScenarios() {
+  $("scenarios").innerHTML = "";
+  for (const scenario of config.scenarios) {
+    const button = document.createElement("button");
+    button.className = "scenario";
+    button.innerHTML = `${scenario.label}<small>${scenario.description}</small>`;
+    button.onclick = () => post(`/emulator/scenario/${scenario.id}`);
+    $("scenarios").append(button);
+  }
+}
+
+// Actions
+
+function setupActions() {
+  for (const icon of config.icons) {
+    $("icon-select").append(new Option(icon, icon));
+  }
+  $("icon-select").value = "calendar";
+
+  $("message-form").onsubmit = (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    postJSON("/message", {
+      text: form.get("text"),
+      icon: form.get("icon") || null,
+      effects: form.get("rainbow") ? ["rainbow"] : [],
+      read: Boolean(form.get("read")),
+    });
+  };
+
+  document.querySelectorAll("[data-route]").forEach((button) => {
+    button.onclick = () => fetch(button.dataset.route);
+  });
+
+  $("seed").onclick = () => postJSON("/emulator/seed", {
+    count: Number($("seed-count").value),
+  });
+
+  $("countdown").onclick = () => fetch(`/countdown?seconds=${$("countdown-seconds").value}&icon=${$("countdown-icon").value}`);
+
+  $("clock-start").onclick = () => {
+    const now = new Date();
+    const seconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    fetch(`/start-clock?start_timestamp=${seconds}`);
+  };
+}
+
+// Tunables
+
+function setupTunables() {
+  $("tunables").innerHTML = "";
+  for (const tunable of config.tunables) {
+    const element = document.createElement("div");
+    element.className = "tunable";
+    element.dataset.var = tunable.var;
+    const input = tunable.type === "bool"
+      ? `<input type="checkbox">`
+      : `<input type="range" min="${tunable.min}" max="${tunable.max}" step="${tunable.step}">`;
+    element.innerHTML = `
+      <div class="head">
+        <span class="name">${tunable.var}</span>
+        <button class="reset" title="Reset to ${tunable.default}">reset</button>
+        <span class="value"></span><span class="unit">${tunable.unit ?? ""}</span>
+      </div>
+      ${input}`;
+    const control = element.querySelector("input");
+    const send = (value) => fetch(`/tune?type=int&var=${tunable.var}&value=${Number(value)}`);
+    if (tunable.type === "bool") {
+      control.onchange = () => send(control.checked ? 1 : 0);
+    } else {
+      control.oninput = () => {
+        element.querySelector(".value").textContent = control.value;
+        send(control.value);
+      };
+    }
+    element.querySelector(".reset").onclick = () => send(tunable.default);
+    $("tunables").append(element);
+  }
+}
+
+function renderTunables(values) {
+  for (const tunable of config.tunables) {
+    const element = document.querySelector(`.tunable[data-var="${tunable.var}"]`);
+    if (!element) continue;
+    const value = values[tunable.var];
+    const control = element.querySelector("input");
+    const editing = document.activeElement === control;
+    if (tunable.type === "bool") {
+      control.checked = Boolean(value);
+      element.querySelector(".value").textContent = value ? "on" : "off";
+    } else {
+      if (!editing) control.value = value;
+      element.querySelector(".value").textContent = editing ? control.value : value;
+    }
+    element.classList.toggle("modified", Number(value) !== Number(tunable.default));
+  }
+}
+
+// State
+
+function renderState(next) {
+  state = next;
+  $("play").textContent = state.clock.paused ? "Play" : "Pause";
+  $("play").classList.toggle("active", state.clock.paused);
+  document.querySelectorAll("#speeds button").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.speed) === state.clock.speed);
+  });
+  $("clock").textContent = `t=${(state.clock.ms / 1000).toFixed(2)}s  frame ${state.frames}`;
+
+  $("now").innerHTML = state.current
+    ? chip(`${state.current.name} · p${state.current.priority}${state.interrupting ? " · interrupting" : ""}`, "now")
+    : `<span class="none">idle</span>`;
+  $("queue").innerHTML = state.queue.length
+    ? state.queue.map((item) => chip(`${item.name} · p${item.priority}`)).join("")
+    : `<span class="none">empty</span>`;
+  $("inbox").innerHTML = state.inbox.length
+    ? state.inbox.map((m) => chip(m.icon ?? "envelope*")).join("")
+    : `<span class="none">empty</span>`;
+
+  renderTunables(state.tunables);
+}
+
+function chip(text, kind = "") {
+  return `<span class="chip ${kind}">${text}</span>`;
+}
+
+// HTTP
+
+async function postJSON(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function post(url) {
+  return postJSON(url, {});
+}
+</script>
+</body>
+</html>

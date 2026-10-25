@@ -24,6 +24,10 @@ TEXT = "The quick brown fox jumps over the lazy dog."
 RAINBOW_TIMER_THRESHOLD = 10
 RAINBOW_FRAME_MULTIPLIER = 2
 MAX_COUNTDOWN_SECONDS = 99 * 60 + 59
+INBOX_SLOT_WIDTH = 11
+INBOX_SLIDE_SPEED = 1
+INBOX_STAGGER = 10
+INBOX_Y = -2
 
 unicorn = GalacticUnicorn()
 graphics = PicoGraphics(DISPLAY)
@@ -71,6 +75,7 @@ class AnimationItem:
         return self._order < other._order
 
 animation_heap = []
+animation_item = None
 animation_priority = None
 animation_running = False
 animation_interrupt = False
@@ -110,6 +115,7 @@ async def stop_animation():
 
 async def run_animations():
     global animation_heap
+    global animation_item
     global animation_priority
     global animation_running
     global animation_interrupt
@@ -136,6 +142,7 @@ async def run_animations():
             animation_interrupt = False
             animation_cancel = False
     finally:
+        animation_item = None
         animation_priority = None
         animation_running = False
         animation_interrupt = False
@@ -198,7 +205,7 @@ async def countdown(request):
 def cancel_animation(request):
     global animation_cancel
     animation_cancel = True
-    enqueue_animation(inbox_animation(), priority=2)
+    enqueue_animation(inbox_animation(), priority=3)
     return 'stopped'
 
 @server.route("/test", methods=["GET"])
@@ -223,7 +230,7 @@ async def clear_inbox(request):
     global message_inbox
 
     message_inbox.clear()
-    enqueue_animation(inbox_animation(), priority=2)
+    enqueue_animation(inbox_animation(), priority=3)
     return 'cleared'
 
 @server.route("/read-inbox", methods=["GET"])
@@ -779,6 +786,26 @@ FLAG = bytearray([
     0b00000000,0b10001000,
     0b00000000,0b00000000, # Flag
 ])
+ENVELOPE = bytearray([
+    0b00000111,0b11110000,
+    0b00000100,0b00110000,
+    0b00000100,0b01010000,
+    0b00000100,0b10010000,
+    0b00000101,0b00010000,
+    0b00000100,0b10010000,
+    0b00000100,0b01010000,
+    0b00000100,0b00110000,
+    0b00000111,0b11110000,
+    0b00000000,0b00000000, # Envelope
+])
+
+ICONS = {
+    'calendar': CALENDAR,
+    'clock': CLOCK,
+    'envelope': ENVELOPE,
+    'flag': FLAG,
+    'timer': TIMER,
+}
 
 @micropython.native # pyright: ignore
 def draw_icon(graphics, icon, x, y):
@@ -794,83 +821,45 @@ ALL_CHARACTERS = ""
 for i in range(96):
     ALL_CHARACTERS += chr(ord(' ') + i)
 
-DIRECTIONS = [
-    (0, -1),
-    (1, 0),
-    (0, 1),
-    (-1, 0)
-]
-
 async def inbox_animation():
     global message_inbox
 
-    snake = []
+    graphics.set_font(font)
 
-    state = None
-    for _ in range(len(message_inbox) + (1 if len(message_inbox) else 0)):
-        if state is None:
-            state = (
-                random.randint(0, WIDTH - 1),
-                random.randint(0, HEIGHT - 1),
-                random.randint(0, 3)
-            )
-        else:
-            if random.randint(0, 100) < 10:
-                rotate = random.randint(-1, 1)
-            else:
-                rotate = 0
+    sleep_reset()
 
-            direction = (state[2] + rotate + 4) % 4
+    # Current y of each visible icon; they rise from below the display and stop at INBOX_Y
+    icon_ys = []
 
-            state = (
-                (state[0] + DIRECTIONS[direction][0] + WIDTH) % WIDTH,
-                (state[1] + DIRECTIONS[direction][1] + HEIGHT) % HEIGHT,
-                direction
-            )
-
-        snake.insert(0, state)
-
-    frame = 0
-    remainder = 0
     while True:
         await sleep_frame()
-        remainder += 1
 
-        if remainder == 2:
-            frame += 1
+        count = len(message_inbox)
+        # Icons past the right edge are not drawn; the last visible one may be clipped
+        visible_count = min(count, (WIDTH + INBOX_SLOT_WIDTH - 1) // INBOX_SLOT_WIDTH)
 
-        if remainder == 9 and len(snake):
-            remainder = 0
-            head = snake[0]
+        # message_inbox can change without interrupting this animation, e.g. via /clear-inbox, so re-sync every frame
+        del icon_ys[visible_count:]
+        while len(icon_ys) < visible_count:
+            icon_ys.append(max(HEIGHT, icon_ys[-1] + INBOX_STAGGER) if icon_ys else HEIGHT)
 
-            if random.randint(0, 100) < 10:
-                rotate = random.randint(-1, 1)
-            else:
-                rotate = 0
-
-            direction = (head[2] + rotate + 4) % 4
-            
-            snake.insert(0, (
-                (head[0] + DIRECTIONS[direction][0] + WIDTH) % WIDTH,
-                (head[1] + DIRECTIONS[direction][1] + HEIGHT) % HEIGHT,
-                direction
-            ))
-            snake.pop()
+        for i in range(visible_count):
+            icon_ys[i] = max(INBOX_Y, icon_ys[i] - INBOX_SLIDE_SPEED)
 
         graphics.set_pen(BLACK)
         graphics.clear()
         graphics.set_pen(WHITE)
-        if len(snake):
-            head = snake[0]
-            graphics.pixel(head[0], head[1])
-            apply_rainbow(frame)
-            graphics.set_pen(WHITE)
-            for x, y, direction in snake[1:]:
-                graphics.pixel(x, y)
+
+        for i in range(visible_count):
+            draw_icon(graphics, inbox_icon(message_inbox[i]), i * INBOX_SLOT_WIDTH, icon_ys[i])
+
         unicorn.update(graphics)
 
-        if len(snake) == 0:
+        if count == 0:
             break
+
+def inbox_icon(message):
+    return ICONS.get(message.get('icon'), ENVELOPE)
 
 async def message_animation(message):
     global message_inbox

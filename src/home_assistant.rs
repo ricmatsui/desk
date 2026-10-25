@@ -152,7 +152,8 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
         // {
         //   "text": "Hello World!",
         //   "effects": ["rainbow"]
-        //   "read": false
+        //   "read": false,
+        //   "icon": "calendar"
         // }
         tracing::info!("message {:?}", message.payload);
 
@@ -168,6 +169,7 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
                         .map(|e| e.as_str().unwrap().to_string())
                         .collect(),
                     read: message.payload["read"].as_bool().unwrap_or(false),
+                    icon: message.payload["icon"].as_str().map(|i| i.to_string()),
                 }),
             })
             .await
