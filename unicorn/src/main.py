@@ -26,6 +26,7 @@ RAINBOW_FRAME_MULTIPLIER = 2
 MAX_COUNTDOWN_SECONDS = 99 * 60 + 59
 INBOX_SLOT_WIDTH = 11
 INBOX_SLIDE_SPEED = 1
+INBOX_SHIFT_SPEED = 1
 INBOX_STAGGER = 10
 INBOX_Y = -2
 
@@ -220,9 +221,13 @@ message_inbox = []
 
 @server.route("/message", methods=["POST"])
 async def message(request):
-    global message_inbox
+    message = request.json
 
-    enqueue_animation(message_animation(request.json), priority=1)
+    ttl = message.get('ttl')
+    if ttl is not None:
+        message['expires_ms'] = time.ticks_add(time.ticks_ms(), int(ttl) * 1000)
+
+    enqueue_animation(message_animation(message), priority=1)
     return 'message'
 
 @server.route("/clear-inbox", methods=["GET"])
@@ -238,6 +243,8 @@ async def read_inbox(request):
     global message_inbox
 
     for message in message_inbox:
+        if is_message_expired(message):
+            continue
         message['read'] = True
         enqueue_animation(message_animation(message), priority=1)
     message_inbox.clear()
@@ -798,9 +805,22 @@ ENVELOPE = bytearray([
     0b00000111,0b11110000,
     0b00000000,0b00000000, # Envelope
 ])
+CAT = bytearray([
+    0b00000011,0b11111000,
+    0b00000100,0b00010000,
+    0b00001000,0b10100000,
+    0b00001000,0b00100000,
+    0b00001010,0b00100000,
+    0b00001000,0b00100000,
+    0b00001000,0b10100000,
+    0b00000100,0b00010000,
+    0b00000011,0b11111000,
+    0b00000000,0b00000000, # Cat
+])
 
 ICONS = {
     'calendar': CALENDAR,
+    'cat': CAT,
     'clock': CLOCK,
     'envelope': ENVELOPE,
     'flag': FLAG,
@@ -828,35 +848,75 @@ async def inbox_animation():
 
     sleep_reset()
 
-    # Current y of each visible icon; they rise from below the display and stop at INBOX_Y
-    icon_ys = []
+    # [x, y, message] for each drawn icon, keyed by id(message). Icons rise from below the display into their slot
+    # and slide left when an earlier slot frees up. Holding the message keeps its id from being reused.
+    placed = {}
+    # [x, y, message] for icons of expired messages, sinking back below the display
+    leaving = []
 
     while True:
         await sleep_frame()
 
+        # message_inbox can change without interrupting this animation, e.g. via /clear-inbox, so re-sync every frame
+        kept = []
+        for message in message_inbox:
+            if not is_message_expired(message):
+                kept.append(message)
+            elif id(message) in placed:
+                leaving.append(placed.pop(id(message)))
+        if len(kept) != len(message_inbox):
+            message_inbox[:] = kept
+
         count = len(message_inbox)
         # Icons past the right edge are not drawn; the last visible one may be clipped
-        visible_count = min(count, (WIDTH + INBOX_SLOT_WIDTH - 1) // INBOX_SLOT_WIDTH)
+        visible = message_inbox[:(WIDTH + INBOX_SLOT_WIDTH - 1) // INBOX_SLOT_WIDTH]
 
-        # message_inbox can change without interrupting this animation, e.g. via /clear-inbox, so re-sync every frame
-        del icon_ys[visible_count:]
-        while len(icon_ys) < visible_count:
-            icon_ys.append(max(HEIGHT, icon_ys[-1] + INBOX_STAGGER) if icon_ys else HEIGHT)
+        visible_ids = set(id(message) for message in visible)
+        for key in [key for key in placed if key not in visible_ids]:
+            del placed[key]
 
-        for i in range(visible_count):
-            icon_ys[i] = max(INBOX_Y, icon_ys[i] - INBOX_SLIDE_SPEED)
+        previous = None
+        for i, message in enumerate(visible):
+            icon = placed.get(id(message))
+            if icon is None:
+                if previous:
+                    # Behind the previous icon, which may not have shifted into its own slot yet
+                    x = max(i * INBOX_SLOT_WIDTH, previous[0] + INBOX_SLOT_WIDTH)
+                    y = max(HEIGHT, previous[1] + INBOX_STAGGER)
+                else:
+                    x, y = i * INBOX_SLOT_WIDTH, HEIGHT
+                icon = placed[id(message)] = [x, y, message]
+            previous = icon
+
+        for icon in leaving:
+            icon[1] += INBOX_SLIDE_SPEED
+        leaving = [icon for icon in leaving if icon[1] < HEIGHT]
+
+        for i, message in enumerate(visible):
+            icon = placed[id(message)]
+            icon[1] = max(INBOX_Y, icon[1] - INBOX_SLIDE_SPEED)
+            # Wait for leaving icons to sink out before closing the gap they leave
+            if not leaving:
+                icon[0] = max(i * INBOX_SLOT_WIDTH, icon[0] - INBOX_SHIFT_SPEED)
 
         graphics.set_pen(BLACK)
         graphics.clear()
         graphics.set_pen(WHITE)
 
-        for i in range(visible_count):
-            draw_icon(graphics, inbox_icon(message_inbox[i]), i * INBOX_SLOT_WIDTH, icon_ys[i])
+        for x, y, message in leaving:
+            draw_icon(graphics, inbox_icon(message), x, y)
+        for message in visible:
+            x, y, _ = placed[id(message)]
+            draw_icon(graphics, inbox_icon(message), x, y)
 
         unicorn.update(graphics)
 
-        if count == 0:
+        if count == 0 and not leaving:
             break
+
+def is_message_expired(message):
+    expires_ms = message.get('expires_ms')
+    return expires_ms is not None and time.ticks_diff(expires_ms, time.ticks_ms()) <= 0
 
 def inbox_icon(message):
     return ICONS.get(message.get('icon'), ENVELOPE)

@@ -54,6 +54,18 @@ async def countdown_interrupted():
     await call("message", json=message("Lorem ipsum", icon="flag"))
 
 
+async def message_with_ttl():
+    await call("message", json=message("Lorem ipsum", icon="cat", ttl=8))
+
+
+async def expire_middle():
+    seed(3, ttls={1: 3})
+
+
+async def expire_with_overflow():
+    seed(6, ttls={1: 3})
+
+
 async def replay_slide_in():
     runtime.main.enqueue_animation(runtime.main.inbox_animation(), priority=3)
 
@@ -66,6 +78,9 @@ SCENARIOS = [
     Scenario("read", "Read inbox", "Seed 2, then read: icons vanish and messages replay.", read_inbox),
     Scenario("clear-mid-slide", "Clear mid-slide", "Seed 4, clear while sliding.", clear_mid_slide),
     Scenario("countdown", "Countdown interrupted", "5s countdown interrupted by a message, then resumes.", countdown_interrupted),
+    Scenario("ttl", "Message with TTL", "8s TTL from arrival: message plays, its icon slides in, then drops out.", message_with_ttl),
+    Scenario("expire-middle", "Expire middle", "Seed 3, the middle with a 3s TTL: it sinks, then the last shifts left.", expire_middle),
+    Scenario("expire-overflow", "Expire with overflow", "Seed 6, the 2nd with a 3s TTL: after it sinks the rest shift left and the 6th slides in from the right.", expire_with_overflow),
     Scenario("replay", "Replay slide-in", "Re-slide the current inbox from the bottom.", replay_slide_in),
 ]
 
@@ -74,18 +89,23 @@ def find(scenario_id):
     return next((s for s in SCENARIOS if s.id == scenario_id), None)
 
 
-def seed(count):
-    """Replace the inbox without playing message animations, then (re)start the inbox animation."""
+def seed(count, ttls=None):
+    """Replace the inbox without playing message animations, then (re)start the inbox animation.
+
+    ttls maps an inbox index to seconds until it expires, stamped as the /message route would.
+    """
     main = runtime.main
     icons = [*sorted(main.ICONS), None]
     main.message_inbox[:] = [
         message("Seeded {}".format(i + 1), icon=icons[i % len(icons)]) for i in range(count)
     ]
+    for i, ttl in (ttls or {}).items():
+        main.message_inbox[i]["expires_ms"] = main.time.ticks_add(main.time.ticks_ms(), ttl * 1000)
     main.enqueue_animation(main.inbox_animation(), priority=3)
 
 
-def message(text, icon=None, rainbow=False, read=False):
-    return {"text": text, "icon": icon, "effects": ["rainbow"] if rainbow else [], "read": read}
+def message(text, icon=None, rainbow=False, read=False, ttl=None):
+    return {"text": text, "icon": icon, "effects": ["rainbow"] if rainbow else [], "read": read, "ttl": ttl}
 
 
 async def call(route, args=None, json=None):

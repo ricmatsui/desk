@@ -45,6 +45,7 @@ pub struct Message {
     pub effects: Vec<String>,
     pub read: bool,
     pub icon: Option<String>,
+    pub ttl: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

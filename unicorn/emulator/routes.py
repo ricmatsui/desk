@@ -28,6 +28,7 @@ STATE_CHECK_SECONDS = 0.1
 TUNABLES = [
     {"var": "INBOX_STAGGER", "type": "int", "min": 0, "max": 20, "step": 1, "unit": "px"},
     {"var": "INBOX_SLIDE_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},
+    {"var": "INBOX_SHIFT_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},
     {"var": "INBOX_SLOT_WIDTH", "type": "int", "min": 8, "max": 16, "step": 1, "unit": "px"},
     {"var": "INBOX_Y", "type": "int", "min": -5, "max": 2, "step": 1, "unit": "px"},
     {"var": "DELAY_MILLIS", "type": "int", "min": 8, "max": 100, "step": 1, "unit": "ms/frame"},

@@ -136,6 +136,7 @@ impl Message<crate::BrokerMessage> for Unicorn {
                         "effects": message.effects,
                         "read": message.read,
                         "icon": message.icon,
+                        "ttl": message.ttl,
                     }))
                     .send()
                     .await

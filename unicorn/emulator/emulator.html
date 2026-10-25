@@ -142,6 +142,7 @@
           <select name="icon" id="icon-select"><option value="">(no icon)</option></select>
           <label><input type="checkbox" name="rainbow">Rainbow</label>
           <label><input type="checkbox" name="read">Read</label>
+          <label>TTL <input type="number" name="ttl" min="0" placeholder="none"> s</label>
           <span class="spacer"></span>
           <button type="submit">Message</button>
         </div>
@@ -334,6 +335,7 @@ function setupActions() {
       icon: form.get("icon") || null,
       effects: form.get("rainbow") ? ["rainbow"] : [],
       read: Boolean(form.get("read")),
+      ttl: form.get("ttl") === "" ? null : Number(form.get("ttl")),
     });
   };
 
