@@ -20,5 +20,5 @@ class GalacticUnicorn:
         frame[0::3] = buffer[2::4]
         frame[1::3] = buffer[1::4]
         frame[2::3] = buffer[0::4]
-        runtime.frames.publish(bytes(frame))
+        runtime.frames.publish(bytes(frame), runtime.clock.now_ms())
         runtime.clock.frame_presented()

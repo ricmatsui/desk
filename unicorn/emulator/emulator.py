@@ -11,6 +11,8 @@ import builtins
 import importlib.util
 import os
 import sys
+import time
+import traceback
 import types
 from pathlib import Path
 
@@ -46,8 +48,17 @@ def run():
     sys.modules[MAIN_MODULE] = module
     runtime.main = module
 
-    # main.py ends with asyncio.run(main()), so this only returns on shutdown
-    spec.loader.exec_module(module)
+    initial = runtime.source_mtimes()
+    try:
+        # main.py ends with asyncio.run(main()), so this only returns on shutdown
+        spec.loader.exec_module(module)
+    except Exception:
+        # Usually main.py mid-edit, e.g. a syntax error; wait for the next save instead of exiting
+        traceback.print_exc()
+        print("[emulator] main.py failed, restarting when sources change", flush=True)
+        while runtime.source_mtimes() == initial:
+            time.sleep(0.5)
+        runtime.restart()
 
 
 def overriding_import(original_import):

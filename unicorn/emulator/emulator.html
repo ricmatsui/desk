@@ -55,6 +55,8 @@
   }
   canvas { display: block; width: 100%; height: auto; }
 
+  .scrub { display: block; width: 100%; margin: 10px 0 0; accent-color: var(--accent); }
+
   .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 14px; }
   .transport .group { display: flex; gap: 2px; }
   .transport .group button { border-radius: 0; }
@@ -114,13 +116,15 @@
 
   <div class="display"><canvas id="display"></canvas></div>
 
+  <input type="range" id="scrub" class="scrub" min="0" max="1000" value="1000" aria-label="Frame history">
+
   <div class="transport">
     <button id="play" title="Space">Pause</button>
     <button id="step" title=".">Step frame</button>
     <div class="group" id="speeds"></div>
     <span class="spacer"></span>
     <span class="readout" id="clock"></span>
-    <span class="readout"><kbd>space</kbd> pause <kbd>.</kbd> step <kbd>1–6</kbd> speed</span>
+    <span class="readout"><kbd>space</kbd> pause <kbd>.</kbd> step <kbd>1–6</kbd> speed <kbd>←/→</kbd> scrub</span>
   </div>
 
   <dl class="status">
@@ -199,12 +203,16 @@ const context = canvas.getContext("2d");
 let config = null;
 let state = null;
 let instance = null;
+// The newest live frame, and while scrubbing {frames: [{number, ms, pixels}], index} from /emulator/history
+let liveFrame = null;
+let history = null;
 
 connect();
 
 function setup() {
   setupDisplay();
   setupTransport();
+  setupScrub();
   setupScenarios();
   setupActions();
   setupTunables();
@@ -218,7 +226,8 @@ function connect() {
   socket.onopen = () => $("connection").classList.add("on");
   socket.onmessage = (event) => {
     if (event.data instanceof ArrayBuffer) {
-      drawFrame(new Uint8Array(event.data));
+      liveFrame = new Uint8Array(event.data);
+      if (!history) drawFrame(liveFrame);
       return;
     }
     const message = JSON.parse(event.data);
@@ -290,8 +299,8 @@ function squircle(size, points = 48) {
 // Transport
 
 function setupTransport() {
-  $("play").onclick = () => setClock({ paused: !state?.clock.paused });
-  $("step").onclick = () => setClock({ step: true });
+  $("play").onclick = () => { goLive(); setClock({ paused: !state?.clock.paused }); };
+  $("step").onclick = () => { goLive(); setClock({ step: true }); };
   $("speeds").innerHTML = "";
   SPEEDS.forEach((speed, i) => {
     const button = document.createElement("button");
@@ -312,6 +321,78 @@ function setupTransport() {
 
 async function setClock(body) {
   renderState(await postJSON("/emulator/clock", body));
+}
+
+// Scrubbing through /emulator/history
+
+function setupScrub() {
+  const scrub = $("scrub");
+  scrub.oninput = async () => {
+    // Before history loads, the bar spans 0–1000, so keep the position as a fraction
+    const fraction = scrub.value / scrub.max;
+    await enterHistory();
+    showHistoryFrame(Math.round(fraction * (history.frames.length - 1)));
+  };
+  document.addEventListener("keydown", async (event) => {
+    // A focused scrub bar moves itself with the arrow keys
+    if (event.target.matches("input, select, textarea")) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+      const entering = !history && !historyLoading;
+      await enterHistory();
+      // The first press shows the newest frame rather than skipping past it. Presses while it loads still count,
+      // since they resume after it in order.
+      showHistoryFrame(entering ? history.frames.length - 1 : history.index + delta);
+    }
+  });
+}
+
+let historyLoading = null;
+
+// Pauses the clock, so the history stays current while scrubbing
+function enterHistory() {
+  if (history) return Promise.resolve();
+  historyLoading ??= (async () => {
+    if (!state?.clock.paused) await setClock({ paused: true });
+    const buffer = await fetch("/emulator/history").then((response) => response.arrayBuffer());
+    history = { frames: decodeHistory(buffer), index: 0 };
+    $("scrub").max = Math.max(history.frames.length - 1, 0);
+    historyLoading = null;
+  })();
+  return historyLoading;
+}
+
+// Each frame is a little-endian uint32 frame number and uint32 virtual ms, then its RGB bytes
+function decodeHistory(buffer) {
+  const size = 8 + config.width * config.height * 3;
+  const view = new DataView(buffer);
+  const frames = [];
+  for (let offset = 0; offset + size <= buffer.byteLength; offset += size) {
+    frames.push({
+      number: view.getUint32(offset, true),
+      ms: view.getUint32(offset + 4, true),
+      pixels: new Uint8Array(buffer, offset + 8, size - 8),
+    });
+  }
+  return frames;
+}
+
+function showHistoryFrame(index) {
+  if (!history.frames.length) return;
+  history.index = Math.max(0, Math.min(history.frames.length - 1, index));
+  const frame = history.frames[history.index];
+  drawFrame(frame.pixels);
+  $("scrub").value = history.index;
+  renderClock();
+}
+
+function goLive() {
+  history = null;
+  $("scrub").max = 1000;
+  $("scrub").value = 1000;
+  if (state) renderClock();
+  if (liveFrame) drawFrame(liveFrame);
 }
 
 // Scenarios
@@ -431,7 +512,7 @@ function renderState(next) {
   document.querySelectorAll("#speeds button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.speed) === state.clock.speed);
   });
-  $("clock").textContent = `t=${(state.clock.ms / 1000).toFixed(2)}s  frame ${state.frames}`;
+  renderClock();
 
   $("now").innerHTML = state.current
     ? chip(`${state.current.name} · p${state.current.priority}${state.interrupting ? " · interrupting" : ""}`, "now")
@@ -444,6 +525,13 @@ function renderState(next) {
     : `<span class="none">empty</span>`;
 
   renderTunables(state.tunables);
+}
+
+// The scrubbed frame while in history, otherwise the live clock
+function renderClock() {
+  const frame = history?.frames[history.index];
+  const [ms, number] = frame ? [frame.ms, frame.number] : [state.clock.ms, state.frames];
+  $("clock").textContent = `t=${(ms / 1000).toFixed(2)}s  frame ${number}`;
 }
 
 function chip(text, kind = "") {

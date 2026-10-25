@@ -3,9 +3,8 @@
 import asyncio
 import json
 import os
-import sys
+import struct
 import uuid
-from pathlib import Path
 
 from microdot import send_file
 from microdot.websocket import with_websocket
@@ -15,8 +14,7 @@ import scenarios
 
 PORT = int(os.environ.get("UNICORN_EMULATOR_PORT", "8080"))
 
-EMULATOR_DIR = Path(__file__).resolve().parent
-SRC_DIR = EMULATOR_DIR.parent / "src"
+EMULATOR_DIR = runtime.EMULATOR_DIR
 
 # Changes on every restart (os.execv keeps the pid), so the page can tell a restart from a dropped connection
 INSTANCE_ID = uuid.uuid4().hex
@@ -48,6 +46,9 @@ TUNABLES = [
 
 
 def install(app):
+    # Started first so the emulator still restarts on the next change if anything below fails
+    asyncio.create_task(restart_on_change())
+
     @app.get("/emulator")
     async def emulator_page(request):
         return send_file(str(EMULATOR_DIR / "emulator.html"), max_age=0)
@@ -66,6 +67,10 @@ def install(app):
         if body.get("step"):
             runtime.clock.step()
         return describe_state()
+
+    @app.get("/emulator/history")
+    async def emulator_history(request):
+        return encode_history(), 200, {"Content-Type": "application/octet-stream"}
 
     @app.post("/emulator/seed")
     async def emulator_seed(request):
@@ -109,8 +114,7 @@ def install(app):
         finally:
             runtime.frames.unsubscribe(queue)
 
-    TUNABLE_DEFAULTS.update({t["var"]: getattr(runtime.main, t["var"]) for t in TUNABLES})
-    asyncio.create_task(restart_on_change())
+    TUNABLE_DEFAULTS.update({t["var"]: getattr(runtime.main, t["var"]) for t in available_tunables()})
 
 
 TUNABLE_DEFAULTS = {}
@@ -122,7 +126,7 @@ def describe_config():
         "width": main.WIDTH,
         "height": main.HEIGHT,
         "icons": sorted(main.ICONS),
-        "tunables": [dict(t, default=TUNABLE_DEFAULTS[t["var"]]) for t in TUNABLES],
+        "tunables": [dict(t, default=TUNABLE_DEFAULTS[t["var"]]) for t in available_tunables()],
         "scenarios": [{"id": s.id, "label": s.label, "description": s.description} for s in scenarios.SCENARIOS],
     }
 
@@ -140,7 +144,7 @@ def describe_state():
         "interrupting": main.animation_interrupt,
         "queue": [describe_animation_item(item) for item in sorted(main.animation_heap)],
         "inbox": [{"text": m.get("text"), "icon": m.get("icon")} for m in main.message_inbox],
-        "tunables": {t["var"]: getattr(main, t["var"]) for t in TUNABLES},
+        "tunables": {t["var"]: getattr(main, t["var"]) for t in available_tunables()},
     }
 
 
@@ -150,25 +154,26 @@ def describe_animation_item(item):
     return {"name": item.animation.__name__, "priority": item.priority}
 
 
+def available_tunables():
+    """TUNABLES that main.py defines. One can be missing while main.py and this file are edited out of step."""
+    return [t for t in TUNABLES if hasattr(runtime.main, t["var"])]
+
+
+def encode_history():
+    """Each frame as a little-endian uint32 frame number and uint32 virtual ms, then its RGB bytes."""
+    return b"".join(struct.pack("<II", number, int(ms)) + frame for number, ms, frame in runtime.frames.history)
+
+
 async def restart_on_change():
     """Re-exec the emulator when main.py or the emulator itself changes; the page reconnects on its own."""
-    def snapshot():
-        paths = [*SRC_DIR.glob("*.py"), *EMULATOR_DIR.glob("*.py"), *EMULATOR_DIR.glob("shims/*.py")]
-        return {path: path.stat().st_mtime for path in paths}
-
-    initial = snapshot()
+    initial = runtime.source_mtimes()
     while True:
         await asyncio.sleep(0.5)
-        if snapshot() != initial:
+        if runtime.source_mtimes() != initial:
             print("[emulator] source changed, restarting")
-            restart()
+            runtime.restart()
 
 
 async def restart_soon():
     await asyncio.sleep(0.1)
-    restart()
-
-
-def restart():
-    sys.stdout.flush()
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+    runtime.restart()

@@ -1,7 +1,17 @@
 # Shared state between the shims, the emulator routes and the loaded main.py.
 
 import asyncio
+import collections
+import os
+import sys
 import time
+from pathlib import Path
+
+EMULATOR_DIR = Path(__file__).resolve().parent
+SRC_DIR = EMULATOR_DIR.parent / "src"
+
+# Presented frames kept for scrubbing back through; ~48 s at 24 ms per frame
+HISTORY_FRAMES = 2000
 
 # The loaded main.py module, set by emulator.py before it executes
 main = None
@@ -59,16 +69,21 @@ class VirtualClock:
 
 
 class FrameBus:
-    """Fans out presented frames (WIDTH * HEIGHT * RGB bytes) to websocket subscribers, dropping stale ones."""
+    """Fans out presented frames (WIDTH * HEIGHT * RGB bytes) to websocket subscribers, dropping stale ones.
+
+    Also keeps the last HISTORY_FRAMES as (number, virtual ms, frame), which subscribers may have skipped.
+    """
 
     def __init__(self):
         self.latest = None
         self.count = 0
+        self.history = collections.deque(maxlen=HISTORY_FRAMES)
         self._subscribers = set()
 
-    def publish(self, frame):
+    def publish(self, frame, ms):
         self.latest = frame
         self.count += 1
+        self.history.append((self.count, ms, frame))
         for queue in self._subscribers:
             # Each queue holds one frame. A subscriber that hasn't sent the previous frame yet gets it replaced,
             # so a slow websocket skips frames instead of buffering a backlog or blocking the animation loop.
@@ -89,3 +104,14 @@ class FrameBus:
 
 clock = VirtualClock()
 frames = FrameBus()
+
+
+def source_mtimes():
+    """Modification times of main.py and the emulator's own sources, to restart when any of them change."""
+    paths = [*SRC_DIR.glob("*.py"), *EMULATOR_DIR.glob("*.py"), *EMULATOR_DIR.glob("shims/*.py")]
+    return {path: path.stat().st_mtime for path in paths}
+
+
+def restart():
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, *sys.argv])
