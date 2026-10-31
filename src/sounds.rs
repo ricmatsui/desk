@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use raylib::core::audio::{RaylibAudio, Sound, Wave};
 
 /// Clips embedded in the binary, by the name messages refer to them with
-const CLIPS: &[(&str, &[u8])] = &[("meow", include_bytes!("../assets/meow.mp3"))];
+const CLIPS: &[(&str, &[u8])] = &[
+    ("meow", include_bytes!("../assets/meow.mp3")),
+    ("double-meow", include_bytes!("../assets/double-meow.mp3")),
+];
 
 /// The audio device and the decoded clips, owned by the raylib thread. Sounds play on miniaudio's
 /// own thread, so playing never blocks drawing.
