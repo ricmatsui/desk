@@ -337,8 +337,8 @@ async def read_inbox(request):
 
 @server.route("/start-clock", methods=["GET"])
 async def start_clock(request):
-    start_timestamp = int(request.args['start_timestamp'])
-    enqueue_animation(clock_animation(start_timestamp), priority=5, id='clock')
+    offset = int(request.args['start_timestamp']) - time.time()
+    enqueue_animation(clock_animation(offset), priority=5, id='clock')
     return 'started'
 
 @server.route("/spacex", methods=["GET"])
@@ -505,11 +505,9 @@ async def collapse_last_frame():
 
 CLOCK_RAINBOW_HOLD_TIME = 3
 
-async def clock_animation(start_timestamp):
+async def clock_animation(offset):
     graphics.set_font(font)
     sleep_reset()
-
-    start_time = time.time()
 
     clock = None
     y = -2 - 11
@@ -522,9 +520,7 @@ async def clock_animation(start_timestamp):
         if y < -2:
             y += 1
 
-        diff = time.time() - start_time
-
-        timestamp = start_timestamp + diff
+        timestamp = time.time() + offset
 
         hours = (timestamp // 3600) % 12 or 12
         minutes = (timestamp // 60) % 60
