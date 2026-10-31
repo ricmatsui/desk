@@ -31,6 +31,7 @@ INBOX_SLIDE_SPEED = 1
 INBOX_SHIFT_SPEED = 1
 INBOX_STAGGER = 10
 INBOX_Y = -2
+INBOX_PUSH_GAP = 2
 MESSAGE_ICON_GAP = 7
 MESSAGE_ICON_TRIO = True
 MESSAGE_TRIO_STAGGER = 0
@@ -38,6 +39,18 @@ MESSAGE_TRIO_SPACING = 9
 MESSAGE_TRIO_TEXT_SPACING = 10
 MESSAGE_TRIO_PAUSE = 20
 MESSAGE_ICON_PUSH = True
+MESSAGE_PUSH_GAP = 2
+COUNTDOWN_PUSH_GAP = 2
+SWITCH_OFF_COLLAPSE = False
+SWITCH_OFF_PAUSE = 0
+DISSOLVE_FRAMES = 20
+DISSOLVE_EASE_IN = False
+DISSOLVE_EASE_OUT = True
+DISSOLVE_CONSTANT_RATE = False
+DISSOLVE_RATE = 8
+COLLAPSE_SQUASH_FRAMES = 1
+COLLAPSE_SHRINK_SPEED = 6
+COLLAPSE_DOT_HOLD = 5
 
 unicorn = GalacticUnicorn()
 graphics = PicoGraphics(DISPLAY)
@@ -50,6 +63,28 @@ WIDTH, HEIGHT = graphics.get_bounds()
 def get_pixel(x, y):
     start = (y * WIDTH + x) * 4
     return tuple(graphics_view[start:start+3])
+
+ROW_BYTES = len(graphics_view) // HEIGHT
+
+last_frame = bytearray(len(graphics_view))
+last_frame_view = memoryview(last_frame)
+
+def is_last_frame_blank():
+    return not any(last_frame)
+
+def draw_last_frame_up(push):
+    """Copies last_frame over graphics, pushed up by push rows; rows it no longer covers are left as they are."""
+    push = max(0, push)
+    if push >= HEIGHT:
+        return
+    graphics_view[0:(HEIGHT - push) * ROW_BYTES] = last_frame_view[push * ROW_BYTES:]
+
+def draw_last_frame_down(push):
+    """Copies last_frame over graphics, pushed down by push rows; rows it no longer covers are left as they are."""
+    push = max(0, push)
+    if push >= HEIGHT:
+        return
+    graphics_view[push * ROW_BYTES:] = last_frame_view[0:(HEIGHT - push) * ROW_BYTES]
 
 WHITE = graphics.create_pen(255, 255, 255)
 YELLOW = graphics.create_pen(255, 255, 0)
@@ -73,9 +108,10 @@ server = Microdot()
 class AnimationItem:
     _counter = 0
     
-    def __init__(self, priority, animation):
+    def __init__(self, priority, animation, id):
         self.priority = priority
         self.animation = animation
+        self.id = id
         AnimationItem._counter += 1
         self._order = AnimationItem._counter
     
@@ -91,11 +127,17 @@ animation_running = False
 animation_interrupt = False
 animation_cancel = False
 
-def enqueue_animation(animation, priority):
+def enqueue_animation(animation, priority, id=None):
+    """Queues animation unless one with the same id is already running or queued. Without an id it is always queued."""
     global animation_heap
     global animation_priority
     global animation_running
     global animation_interrupt
+
+    if id is not None and is_duplicate_animation(id):
+        print("enqueue_animation skip", id)
+        animation.close()
+        return
 
     print("enqueue_animation")
     print("current status", animation_running, animation_priority)
@@ -103,13 +145,27 @@ def enqueue_animation(animation, priority):
         print("enqueue_animation interrupt")
         animation_interrupt = True
 
-    heapq.heappush(animation_heap, AnimationItem(priority, animation))
+    heapq.heappush(animation_heap, AnimationItem(priority, animation, id))
 
     if not animation_running:
         print("enqueue_animation create task")
         animation_running = True
         animation_priority = priority
         asyncio.create_task(run_animations())
+
+def enqueue_inbox_animation():
+    """A running inbox animation picks up inbox changes itself, so this only queues one when there is none."""
+    enqueue_animation(inbox_animation(), priority=3, id='inbox')
+
+def is_duplicate_animation(id):
+    """Whether an animation with this id is running or waiting in the queue. One being interrupted or cancelled is on
+    its way out, so it doesn't count; that lets cancel queue a fresh inbox when the inbox is the one being cancelled."""
+    if animation_item is not None and animation_item.id == id and not (animation_interrupt or animation_cancel):
+        return True
+    for item in animation_heap:
+        if item.id == id:
+            return True
+    return False
 
 class AnimationInterrupt(Exception):
     pass
@@ -140,6 +196,8 @@ async def run_animations():
 
             animation_priority = animation_item.priority
             animation = animation_item.animation
+
+            last_frame[:] = graphics_view
 
             try:
                 await animation
@@ -208,21 +266,26 @@ async def countdown(request):
         timestamp = int(request.args['timestamp'])
 
     icon = {'calendar': CALENDAR, 'flag': FLAG, 'timer': TIMER}[request.args['icon']]
-    enqueue_animation(countdown_animation(timestamp, icon), priority=2)
+    enqueue_countdown_animation(timestamp, icon)
     return 'started'
 
 @server.route("/cancel-animation", methods=["GET"])
 def cancel_animation(request):
     global animation_cancel
-    animation_cancel = True
-    enqueue_animation(inbox_animation(), priority=3)
+
+    if animation_running:
+        animation_cancel = True
+        enqueue_animation(switch_off_animation(), priority=0, id='switch-off')
+
+    enqueue_inbox_animation()
     return 'stopped'
 
 @server.route("/test", methods=["GET"])
 async def test(request):
     enqueue_animation(
         test_animation(),
-        priority=1
+        priority=1,
+        id='test'
     )
     return 'test'
 
@@ -249,39 +312,38 @@ async def remove_message(request):
     if message is not None:
         # Expiring it lets the inbox animation drop it out
         message['expires_ms'] = time.ticks_ms()
-        enqueue_animation(inbox_animation(), priority=3)
+        enqueue_inbox_animation()
     return 'removed'
 
 @server.route("/clear-inbox", methods=["GET"])
 async def clear_inbox(request):
-    global message_inbox
-
-    message_inbox.clear()
-    enqueue_animation(inbox_animation(), priority=3)
+    now = time.ticks_ms()
+    for message in message_inbox:
+        message['expires_ms'] = now
+    enqueue_inbox_animation()
     return 'cleared'
 
 @server.route("/read-inbox", methods=["GET"])
 async def read_inbox(request):
-    global message_inbox
-
+    now = time.ticks_ms()
     for message in message_inbox:
         if is_message_expired(message):
             continue
         message['read'] = True
+        message['expires_ms'] = now
         enqueue_animation(message_animation(message), priority=1)
-    message_inbox.clear()
-    enqueue_animation(inbox_animation(), priority=3)
+    enqueue_inbox_animation()
     return 'read'
 
 @server.route("/start-clock", methods=["GET"])
 async def start_clock(request):
     start_timestamp = int(request.args['start_timestamp'])
-    enqueue_animation(clock_animation(start_timestamp), priority=5)
+    enqueue_animation(clock_animation(start_timestamp), priority=5, id='clock')
     return 'started'
 
 @server.route("/spacex", methods=["GET"])
 async def spacex(request):
-    enqueue_animation(spacex_animation(), priority=2)
+    enqueue_animation(spacex_animation(), priority=2, id='spacex')
     return 'started'
 
 async def test_animation():
@@ -341,7 +403,105 @@ async def test_animation():
             graphics.text(previous_clock[movement_index:], x, y, scale=1, spacing=2)
             unicorn.update(graphics)
 
-    enqueue_animation(inbox_animation(), priority=3)
+    enqueue_inbox_animation()
+
+async def switch_off_animation():
+    """Switches last_frame off: a dissolve, or a power-off collapse with SWITCH_OFF_COLLAPSE. Then stays black for
+    SWITCH_OFF_PAUSE frames."""
+    sleep_reset()
+
+    if SWITCH_OFF_COLLAPSE:
+        await collapse_last_frame()
+    else:
+        await dissolve_last_frame()
+
+    graphics.set_pen(BLACK)
+    graphics.clear()
+    unicorn.update(graphics)
+
+    for _ in range(SWITCH_OFF_PAUSE):
+        await sleep_frame()
+
+async def dissolve_last_frame():
+    """Switches last_frame's lit pixels off in a random order over DISSOLVE_FRAMES frames, speeding up with
+    DISSOLVE_EASE_IN, slowing down with DISSOLVE_EASE_OUT, or both. With DISSOLVE_CONSTANT_RATE it instead takes as many frames as switching off DISSOLVE_RATE pixels
+    a frame needs, so a busier frame dissolves for longer."""
+    graphics_view[:] = last_frame_view
+
+    lit = []
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            if any(get_pixel(x, y)):
+                lit.append((x, y))
+
+    # MicroPython's random has no shuffle
+    for i in range(len(lit) - 1, 0, -1):
+        j = random.randrange(i + 1)
+        lit[i], lit[j] = lit[j], lit[i]
+
+    graphics.set_pen(BLACK)
+    if DISSOLVE_CONSTANT_RATE:
+        rate = max(1, DISSOLVE_RATE)
+        frames = max(1, (len(lit) + rate - 1) // rate)
+    else:
+        frames = max(1, DISSOLVE_FRAMES)
+    off = 0
+    for frame in range(frames):
+        await sleep_frame()
+
+        progress = (frame + 1) / frames
+        if DISSOLVE_EASE_IN and DISSOLVE_EASE_OUT:
+            if progress < 0.5:
+                progress = 2 * progress * progress
+            else:
+                progress = 1 - 2 * (1 - progress) * (1 - progress)
+        elif DISSOLVE_EASE_IN:
+            progress *= progress
+        elif DISSOLVE_EASE_OUT:
+            progress = 1 - (1 - progress) * (1 - progress)
+        end = int(len(lit) * progress)
+        for x, y in lit[off:end]:
+            graphics.pixel(x, y)
+        off = end
+
+        unicorn.update(graphics)
+
+async def collapse_last_frame():
+    """Squashes last_frame into its middle row, shrinks that row to a dot, then holds the dot, like a CRT switching off."""
+    middle = HEIGHT // 2
+
+    # Each step keeps fewer rows, sampled evenly from last_frame and centred on the middle row
+    for rows in range(HEIGHT - 2, 0, -2):
+        for _ in range(max(1, COLLAPSE_SQUASH_FRAMES)):
+            await sleep_frame()
+
+        graphics.set_pen(BLACK)
+        graphics.clear()
+        top = middle - rows // 2
+        for row in range(rows):
+            source = (row * 2 + 1) * HEIGHT // (rows * 2)
+            graphics_view[(top + row) * ROW_BYTES:(top + row + 1) * ROW_BYTES] = last_frame_view[source * ROW_BYTES:(source + 1) * ROW_BYTES]
+
+        unicorn.update(graphics)
+
+    center = WIDTH // 2
+    half_width = center
+    while True:
+        await sleep_frame()
+
+        graphics.set_pen(BLACK)
+        graphics.clear()
+        graphics.set_pen(WHITE)
+        graphics.rectangle(center - half_width, middle, half_width * 2 + 1, 1)
+
+        unicorn.update(graphics)
+
+        if half_width == 0:
+            break
+        half_width = max(0, half_width - max(1, COLLAPSE_SHRINK_SPEED))
+
+    for _ in range(COLLAPSE_DOT_HOLD):
+        await sleep_frame()
 
 CLOCK_RAINBOW_HOLD_TIME = 3
 
@@ -366,7 +526,7 @@ async def clock_animation(start_timestamp):
 
         timestamp = start_timestamp + diff
 
-        hours = (timestamp // 3600) % 12
+        hours = (timestamp // 3600) % 12 or 12
         minutes = (timestamp // 60) % 60
         seconds = timestamp % 60
 
@@ -450,6 +610,9 @@ async def clock_animation(start_timestamp):
 
                 unicorn.update(graphics)
 
+def enqueue_countdown_animation(timestamp, icon):
+    enqueue_animation(countdown_animation(timestamp, icon), priority=2)
+
 async def countdown_animation(timestamp, icon):
     graphics.set_font(font)
 
@@ -459,7 +622,7 @@ async def countdown_animation(timestamp, icon):
 
     target = time.ticks_add(time.ticks_ms(), diff_seconds * 1000)
 
-    y = -2 - 11
+    y = -2 - 11 - COUNTDOWN_PUSH_GAP
 
     clock = None
 
@@ -500,6 +663,8 @@ async def countdown_animation(timestamp, icon):
 
                 if timer < RAINBOW_TIMER_THRESHOLD:
                     apply_rainbow(frame)
+
+                draw_last_frame_down(y + 13 + COUNTDOWN_PUSH_GAP)
 
                 unicorn.update(graphics)
             else:
@@ -563,9 +728,9 @@ async def countdown_animation(timestamp, icon):
 
                     unicorn.update(graphics)
 
-        enqueue_animation(inbox_animation(), priority=3)
+        enqueue_inbox_animation()
     except AnimationInterrupt:
-        enqueue_animation(countdown_animation(timestamp, icon), priority=2)
+        enqueue_countdown_animation(timestamp, icon)
         raise
 
 async def spacex_animation():
@@ -889,11 +1054,14 @@ async def inbox_animation():
     placed = {}
     # [x, y, message] for icons of expired messages, sinking back below the display
     leaving = []
+    # y of an icon rising in step with the first one, which pushes last_frame up ahead of it. It rises even when the
+    # inbox is empty, so last_frame still leaves; a blank one needs no push.
+    push_y = INBOX_Y if is_last_frame_blank() else HEIGHT
 
     while True:
         await sleep_frame()
 
-        # message_inbox can change without interrupting this animation, e.g. via /clear-inbox, so re-sync every frame
+        # message_inbox can change without interrupting this animation, e.g. via /remove-message, so re-sync every frame
         kept = []
         for message in message_inbox:
             if not is_message_expired(message):
@@ -941,6 +1109,9 @@ async def inbox_animation():
             if icon[1] < HEIGHT or not (leaving or shifting):
                 icon[1] = max(INBOX_Y, icon[1] - INBOX_SLIDE_SPEED)
 
+        push_y = max(INBOX_Y, push_y - INBOX_SLIDE_SPEED)
+        push = HEIGHT - 2 - push_y + INBOX_PUSH_GAP
+
         graphics.set_pen(BLACK)
         graphics.clear()
         graphics.set_pen(WHITE)
@@ -950,9 +1121,11 @@ async def inbox_animation():
         for x, y, message in icons:
             draw_icon(graphics, inbox_icon(message), x, y)
 
+        draw_last_frame_up(push)
+
         unicorn.update(graphics)
 
-        if count == 0 and not leaving:
+        if count == 0 and not leaving and push >= HEIGHT:
             break
 
 def inbox_row_x(count):
@@ -1034,6 +1207,8 @@ async def message_animation(message):
         if enable_rainbow:
             apply_rainbow(frame)
 
+        draw_last_frame_up(HEIGHT - 2 - icons[0][1] + MESSAGE_PUSH_GAP)
+
         unicorn.update(graphics)
 
     remainder = 0
@@ -1100,7 +1275,7 @@ async def message_animation(message):
 
         draw()
 
-    enqueue_animation(inbox_animation(), priority=3)
+    enqueue_inbox_animation()
 
 frame_start = None
 
@@ -1147,7 +1322,7 @@ async def main():
     graphics.pixel(0, 0)
     unicorn.update(graphics)
 
-    enqueue_animation(inbox_animation(), priority=3)
+    enqueue_inbox_animation()
     while True:
         await asyncio.sleep(1)
 

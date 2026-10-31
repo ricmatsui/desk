@@ -30,13 +30,26 @@ TUNABLES = [
     {"var": "INBOX_SHIFT_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},
     {"var": "INBOX_SLOT_WIDTH", "type": "int", "min": 8, "max": 16, "step": 1, "unit": "px"},
     {"var": "INBOX_Y", "type": "int", "min": -5, "max": 2, "step": 1, "unit": "px"},
+    {"var": "INBOX_PUSH_GAP", "type": "int", "min": 0, "max": 5, "step": 1, "unit": "px"},
     {"var": "MESSAGE_ICON_PUSH", "type": "bool"},
     {"var": "MESSAGE_ICON_TRIO", "type": "bool"},
     {"var": "MESSAGE_TRIO_STAGGER", "type": "int", "min": 0, "max": 12, "step": 1, "unit": "px"},
     {"var": "MESSAGE_TRIO_SPACING", "type": "int", "min": 0, "max": 13, "step": 1, "unit": "px"},
     {"var": "MESSAGE_TRIO_TEXT_SPACING", "type": "int", "min": 0, "max": 53, "step": 1, "unit": "px"},
     {"var": "MESSAGE_TRIO_PAUSE", "type": "int", "min": 0, "max": 100, "step": 5, "unit": "frames"},
+    {"var": "MESSAGE_PUSH_GAP", "type": "int", "min": 0, "max": 5, "step": 1, "unit": "px"},
     {"var": "MESSAGE_ICON_GAP", "type": "int", "min": 0, "max": 10, "step": 1, "unit": "px"},
+    {"var": "COUNTDOWN_PUSH_GAP", "type": "int", "min": 0, "max": 5, "step": 1, "unit": "px"},
+    {"var": "SWITCH_OFF_COLLAPSE", "type": "bool"},
+    {"var": "SWITCH_OFF_PAUSE", "type": "int", "min": 0, "max": 100, "step": 5, "unit": "frames"},
+    {"var": "DISSOLVE_FRAMES", "type": "int", "min": 1, "max": 100, "step": 1, "unit": "frames"},
+    {"var": "DISSOLVE_EASE_IN", "type": "bool"},
+    {"var": "DISSOLVE_EASE_OUT", "type": "bool"},
+    {"var": "DISSOLVE_CONSTANT_RATE", "type": "bool"},
+    {"var": "DISSOLVE_RATE", "type": "int", "min": 1, "max": 50, "step": 1, "unit": "px/frame"},
+    {"var": "COLLAPSE_SQUASH_FRAMES", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "frames/step"},
+    {"var": "COLLAPSE_SHRINK_SPEED", "type": "int", "min": 1, "max": 10, "step": 1, "unit": "px/frame"},
+    {"var": "COLLAPSE_DOT_HOLD", "type": "int", "min": 0, "max": 60, "step": 1, "unit": "frames"},
     {"var": "DELAY_MILLIS", "type": "int", "min": 8, "max": 100, "step": 1, "unit": "ms/frame"},
     {"var": "HOLD_ENABLE", "type": "bool"},
     {"var": "HOLD_TIME", "type": "int", "min": 0, "max": 300, "step": 5, "unit": "frames"},
@@ -151,7 +164,7 @@ def describe_state():
 def describe_animation_item(item):
     if item is None:
         return None
-    return {"name": item.animation.__name__, "priority": item.priority}
+    return {"name": item.animation.__name__, "priority": item.priority, "id": item.id}
 
 
 def available_tunables():

@@ -90,7 +90,70 @@ async def replace_by_id():
 
 
 async def replay_slide_in():
+    # No id, so it queues even while an inbox is running
     runtime.main.enqueue_animation(runtime.main.inbox_animation(), priority=3)
+
+
+async def clock_then_message():
+    await start_clock()
+    await call("message", json=message("Lorem ipsum", icon="calendar"))
+
+
+async def clock_then_countdown():
+    await start_clock()
+    await call("countdown", args={"seconds": "5", "icon": "timer"})
+
+
+async def clock_then_clear():
+    await start_clock()
+    await call("clear_inbox")
+
+
+async def clock_behind_inbox():
+    seed(2)
+    await until_playing("inbox_animation")
+    await wait(1500)
+    await call("start_clock", args={"start_timestamp": str(CLOCK_START_TIMESTAMP)})
+
+
+async def inbox_then_message():
+    await settled_inbox()
+    await call("message", json=message("Lorem ipsum", icon="flag"))
+
+
+async def inbox_then_countdown():
+    await settled_inbox()
+    await call("countdown", args={"seconds": "5", "icon": "timer"})
+
+
+async def countdown_then_cancel():
+    await call("countdown", args={"seconds": "30", "icon": "timer"})
+    await until_playing("countdown_animation")
+    await wait(1500)
+    await call("cancel_animation")
+
+
+async def countdown_finishes():
+    seed(2)
+    await call("countdown", args={"seconds": "3", "icon": "timer"})
+
+
+async def start_clock():
+    """Starts the clock and waits until it has dropped in."""
+    await call("start_clock", args={"start_timestamp": str(CLOCK_START_TIMESTAMP)})
+    await until_playing("clock_animation")
+    await wait(1500)
+
+
+async def settled_inbox():
+    """Seeds 3 and waits until their icons have risen into place."""
+    seed(3)
+    await until_playing("inbox_animation")
+    await wait(2500)
+
+
+# 10:00, the clock's seconds since midnight
+CLOCK_START_TIMESTAMP = 10 * 3600
 
 
 SCENARIOS = [
@@ -98,8 +161,8 @@ SCENARIOS = [
     Scenario("burst", "Burst of 3", "Three arrive together; all play, then icons slide up from the bottom. Last has no icon (envelope).", burst_of_three),
     Scenario("mid-slide", "Message mid-slide", "Seed 3, interrupt the slide with a new message.", message_mid_slide),
     Scenario("full", "Full inbox", "Seed 5 (the last is clipped), then a 6th arrives and is not drawn.", full_inbox),
-    Scenario("read", "Read inbox", "Seed 2, then read: icons vanish and messages replay.", read_inbox),
-    Scenario("clear-mid-slide", "Clear mid-slide", "Seed 4, clear while sliding.", clear_mid_slide),
+    Scenario("read", "Read inbox", "Seed 2, then read: the first message pushes the row up and both replay.", read_inbox),
+    Scenario("clear-mid-slide", "Clear mid-slide", "Seed 4, clear while sliding: the icons sink out.", clear_mid_slide),
     Scenario("countdown", "Countdown interrupted", "5s countdown interrupted by a message, then resumes.", countdown_interrupted),
     Scenario("ttl", "Message with TTL", "8s TTL from arrival: message plays, its icon slides in, then drops out.", message_with_ttl),
     Scenario("expire-middle", "Expire middle", "Seed 3, the middle with a 3s TTL: it sinks, then the last shifts left.", expire_middle),
@@ -108,6 +171,14 @@ SCENARIOS = [
     Scenario("remove", "Remove by id", "Seed 2, a siren with id datadog arrives, then is removed: it drops out like an expiry.", remove_by_id),
     Scenario("replace", "Replace by id", "A siren with id datadog arrives, then another with the same id replaces it quietly, without playing.", replace_by_id),
     Scenario("replay", "Replay slide-in", "Re-slide the current inbox from the bottom.", replay_slide_in),
+    Scenario("clock-message", "Clock → message", "The clock drops in, then a message pushes it up. The clock doesn't come back.", clock_then_message),
+    Scenario("clock-countdown", "Clock → countdown", "The clock drops in, then a 5s countdown drops in and pushes it out the bottom. The clock doesn't come back.", clock_then_countdown),
+    Scenario("clock-clear", "Clock → clear inbox", "The clock drops in, then clearing the (empty) inbox interrupts it: the clock is pushed up and the display is left blank.", clock_then_clear),
+    Scenario("clock-behind-inbox", "Clock behind inbox", "Seed 2, then start the clock: it waits until the inbox empties.", clock_behind_inbox),
+    Scenario("inbox-message", "Inbox → message", "Seed 3 and let them settle, then a message pushes the row up.", inbox_then_message),
+    Scenario("inbox-countdown", "Inbox → countdown", "Seed 3 and let them settle, then a 5s countdown drops in and pushes the row out the bottom.", inbox_then_countdown),
+    Scenario("countdown-cancel", "Countdown → cancel", "A 30s countdown drops in, then is cancelled: it dissolves, or collapses with SWITCH_OFF_COLLAPSE.", countdown_then_cancel),
+    Scenario("countdown-end", "Countdown finishes", "Seed 2, then a 3s countdown drops in, runs out, drops away, and the inbox rises.", countdown_finishes),
 ]
 
 
@@ -116,7 +187,7 @@ def find(scenario_id):
 
 
 def seed(count, ttls=None):
-    """Replace the inbox without playing message animations, then (re)start the inbox animation.
+    """Replace the inbox without playing message animations, then start the inbox animation if none is running.
 
     ttls maps an inbox index to seconds until it expires, stamped as the /message route would.
     """
@@ -127,7 +198,7 @@ def seed(count, ttls=None):
     ]
     for i, ttl in (ttls or {}).items():
         main.message_inbox[i]["expires_ms"] = main.time.ticks_add(main.time.ticks_ms(), ttl * 1000)
-    main.enqueue_animation(main.inbox_animation(), priority=3)
+    main.enqueue_inbox_animation()
 
 
 def message(text, icon=None, rainbow=False, read=False, ttl=None, id=None):
