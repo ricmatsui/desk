@@ -177,7 +177,7 @@ SCENARIOS = [
     Scenario("clock-behind-inbox", "Clock behind inbox", "Seed 2, then start the clock: it waits until the inbox empties.", clock_behind_inbox),
     Scenario("inbox-message", "Inbox → message", "Seed 3 and let them settle, then a message pushes the row up.", inbox_then_message),
     Scenario("inbox-countdown", "Inbox → countdown", "Seed 3 and let them settle, then a 5s countdown drops in and pushes the row out the bottom.", inbox_then_countdown),
-    Scenario("countdown-cancel", "Countdown → cancel", "A 30s countdown drops in, then is cancelled: it dissolves, or collapses with SWITCH_OFF_COLLAPSE.", countdown_then_cancel),
+    Scenario("countdown-cancel", "Countdown → cancel", "A 30s countdown drops in, then is cancelled: it switches off in the SWITCH_OFF_STYLE.", countdown_then_cancel),
     Scenario("countdown-end", "Countdown finishes", "Seed 2, then a 3s countdown drops in, runs out, drops away, and the inbox rises.", countdown_finishes),
 ]
 

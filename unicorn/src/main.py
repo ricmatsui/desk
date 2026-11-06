@@ -41,7 +41,10 @@ MESSAGE_TRIO_PAUSE = 20
 MESSAGE_ICON_PUSH = True
 MESSAGE_PUSH_GAP = 2
 COUNTDOWN_PUSH_GAP = 2
-SWITCH_OFF_COLLAPSE = False
+SWITCH_OFF_DISSOLVE = 0
+SWITCH_OFF_COLLAPSE = 1
+SWITCH_OFF_SAND = 2
+SWITCH_OFF_STYLE = SWITCH_OFF_SAND
 SWITCH_OFF_PAUSE = 0
 DISSOLVE_FRAMES = 20
 DISSOLVE_EASE_IN = False
@@ -51,6 +54,11 @@ DISSOLVE_RATE = 8
 COLLAPSE_SQUASH_FRAMES = 1
 COLLAPSE_SHRINK_SPEED = 6
 COLLAPSE_DOT_HOLD = 5
+SAND_RELEASE_ALL = False
+SAND_RELEASE_RATE = 25
+SAND_FALL_FRAMES = 1
+SAND_DRAIN_DELAY = 9
+SAND_DRAIN_SPEED = 1
 
 unicorn = GalacticUnicorn()
 graphics = PicoGraphics(DISPLAY)
@@ -406,12 +414,14 @@ async def test_animation():
     enqueue_inbox_animation()
 
 async def switch_off_animation():
-    """Switches last_frame off: a dissolve, or a power-off collapse with SWITCH_OFF_COLLAPSE. Then stays black for
-    SWITCH_OFF_PAUSE frames."""
+    """Switches last_frame off in the SWITCH_OFF_STYLE: a dissolve, a power-off collapse, or crumbling into sand. Then
+    stays black for SWITCH_OFF_PAUSE frames."""
     sleep_reset()
 
-    if SWITCH_OFF_COLLAPSE:
+    if SWITCH_OFF_STYLE == SWITCH_OFF_COLLAPSE:
         await collapse_last_frame()
+    elif SWITCH_OFF_STYLE == SWITCH_OFF_SAND:
+        await sand_last_frame()
     else:
         await dissolve_last_frame()
 
@@ -434,10 +444,7 @@ async def dissolve_last_frame():
             if any(get_pixel(x, y)):
                 lit.append((x, y))
 
-    # MicroPython's random has no shuffle
-    for i in range(len(lit) - 1, 0, -1):
-        j = random.randrange(i + 1)
-        lit[i], lit[j] = lit[j], lit[i]
+    shuffle(lit)
 
     graphics.set_pen(BLACK)
     if DISSOLVE_CONSTANT_RATE:
@@ -502,6 +509,155 @@ async def collapse_last_frame():
 
     for _ in range(COLLAPSE_DOT_HOLD):
         await sleep_frame()
+
+async def sand_last_frame():
+    """Crumbles last_frame's lit pixels into grains of sand that pile up on the floor. SAND_DRAIN_DELAY frames in, a
+    hole opens in the middle of the floor, widening by SAND_DRAIN_SPEED columns a side each frame, so the pile pours
+    out of it like an hourglass."""
+    graphics_view[:] = last_frame_view
+    sand = Sand()
+    center = WIDTH // 2
+    radius = 0
+    frame = 0
+
+    while sand.is_moving() or radius <= center:
+        await sleep_frame()
+        sand.release(0 if SAND_RELEASE_ALL else SAND_RELEASE_RATE)
+        if frame >= SAND_DRAIN_DELAY and radius <= center:
+            sand.open_drain(center - radius, center + radius)
+            radius += max(1, SAND_DRAIN_SPEED)
+        frame += 1
+        sand.fall()
+        unicorn.update(graphics)
+
+GRAIN_LOOSE = 1
+GRAIN_HELD = 2
+
+class Sand:
+    """The lit pixels of graphics as grains. Loose grains fall a row every SAND_FALL_FRAMES frames, sliding diagonally
+    off grains below them; held grains stay put until released. Grains move their pixel in graphics with them.
+
+    Only grains that might move are stepped: those just released, those that moved last step, and those whose cell
+    below was just vacated or opened up, which are stepped straight away so a column falls together. Any other grain
+    rests on grains that can't move either."""
+
+    def __init__(self):
+        self.cells = bytearray(WIDTH * HEIGHT)
+        self.held = []
+        for i in range(WIDTH * HEIGHT):
+            if any(graphics_view[i * 4:i * 4 + 3]):
+                self.cells[i] = GRAIN_HELD
+                self.held.append(i)
+        shuffle(self.held)
+        # May hold duplicates, and grains that have since moved on; fall() skips both
+        self.waking = []
+        self.drain_left = 0
+        self.drain_right = -1
+        self.frame = 0
+
+    def is_moving(self):
+        return bool(self.held or self.waking)
+
+    def release(self, count):
+        """Lets count random held grains loose, or all of them for 0."""
+        if not self.held:
+            return
+        start = 0 if count <= 0 else max(0, len(self.held) - count)
+        for i in self.held[start:]:
+            self.cells[i] = GRAIN_LOOSE
+        self.waking.extend(self.held[start:])
+        del self.held[start:]
+
+    def open_drain(self, left, right):
+        """Opens the floor from column left to right; grains reaching it fall out of the frame."""
+        self.drain_left = left
+        self.drain_right = right
+        # Grains beside the opening can slide diagonally into it
+        bottom = (HEIGHT - 1) * WIDTH
+        for x in range(max(0, left - 1), min(WIDTH, right + 2)):
+            if self.cells[bottom + x] == GRAIN_LOOSE:
+                self.waking.append(bottom + x)
+
+    @micropython.native # pyright: ignore
+    def fall(self):
+        """Steps the waking grains, bottom row first so a grain sees the cells below it after they've moved. A max-heap
+        (of negated cells) lets grains woken mid-step join in above. Written out inline with locals, as it runs for
+        every falling grain each step."""
+        self.frame += 1
+        if self.frame % max(1, SAND_FALL_FRAMES):
+            return
+
+        width = WIDTH
+        height = HEIGHT
+        loose = GRAIN_LOOSE
+        cells = self.cells
+        view = graphics_view
+        drain_left = self.drain_left
+        drain_right = self.drain_right
+
+        falling = [-i for i in self.waking]
+        heapq.heapify(falling)
+        waking = []
+        previous = -1
+        while falling:
+            i = -heapq.heappop(falling)
+            if i == previous or cells[i] != loose:
+                continue
+            previous = i
+
+            y = i // width
+            x = i - y * width
+            below = i + width
+            if y + 1 < height:
+                down = not cells[below]
+                left = x > 0 and not cells[below - 1]
+                right = x < width - 1 and not cells[below + 1]
+            else:
+                down = drain_left <= x <= drain_right
+                left = x > 0 and drain_left <= x - 1 <= drain_right
+                right = x < width - 1 and drain_left <= x + 1 <= drain_right
+
+            if down:
+                to = below
+            elif left and right:
+                to = below - 1 if random.getrandbits(1) else below + 1
+            elif left:
+                to = below - 1
+            elif right:
+                to = below + 1
+            else:
+                continue
+
+            # Byte by byte, as slicing a memoryview allocates
+            source = i * 4
+            if y + 1 < height:
+                cells[to] = loose
+                target = to * 4
+                view[target] = view[source]
+                view[target + 1] = view[source + 1]
+                view[target + 2] = view[source + 2]
+                waking.append(to)
+            cells[i] = 0
+            view[source] = 0
+            view[source + 1] = 0
+            view[source + 2] = 0
+
+            # The grains above may now have somewhere to fall
+            if y > 0:
+                above = i - width
+                if cells[above] == loose:
+                    heapq.heappush(falling, -above)
+                if x > 0 and cells[above - 1] == loose:
+                    heapq.heappush(falling, 1 - above)
+                if x < width - 1 and cells[above + 1] == loose:
+                    heapq.heappush(falling, -above - 1)
+        self.waking = waking
+
+def shuffle(items):
+    # MicroPython's random has no shuffle
+    for i in range(len(items) - 1, 0, -1):
+        j = random.randrange(i + 1)
+        items[i], items[j] = items[j], items[i]
 
 CLOCK_RAINBOW_HOLD_TIME = 3
 

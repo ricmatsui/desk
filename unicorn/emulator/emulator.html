@@ -99,6 +99,7 @@
   .tunable .unit { color: var(--muted); }
   .tunable.modified .name { color: var(--accent); }
   .tunable input[type=range] { width: 100%; accent-color: var(--accent); }
+  .tunable select { width: 100%; }
   .tunable .reset { padding: 0 6px; font-size: 11px; visibility: hidden; }
   .tunable.modified .reset { visibility: visible; }
   kbd { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
@@ -460,9 +461,10 @@ function setupTunables() {
     const element = document.createElement("div");
     element.className = "tunable";
     element.dataset.var = tunable.var;
-    const input = tunable.type === "bool"
-      ? `<input type="checkbox">`
-      : `<input type="range" min="${tunable.min}" max="${tunable.max}" step="${tunable.step}">`;
+    const input = {
+      bool: () => `<input type="checkbox">`,
+      choice: () => `<select>${tunable.options.map((option, i) => `<option value="${i}">${option}</option>`).join("")}</select>`,
+    }[tunable.type]?.() ?? `<input type="range" min="${tunable.min}" max="${tunable.max}" step="${tunable.step}">`;
     element.innerHTML = `
       <div class="head">
         <span class="name">${tunable.var}</span>
@@ -470,10 +472,12 @@ function setupTunables() {
         <span class="value"></span><span class="unit">${tunable.unit ?? ""}</span>
       </div>
       ${input}`;
-    const control = element.querySelector("input");
+    const control = element.querySelector("input, select");
     const send = (value) => fetch(`/tune?type=int&var=${tunable.var}&value=${Number(value)}`);
     if (tunable.type === "bool") {
       control.onchange = () => send(control.checked ? 1 : 0);
+    } else if (tunable.type === "choice") {
+      control.onchange = () => send(control.value);
     } else {
       control.oninput = () => {
         element.querySelector(".value").textContent = control.value;
@@ -490,11 +494,13 @@ function renderTunables(values) {
     const element = document.querySelector(`.tunable[data-var="${tunable.var}"]`);
     if (!element) continue;
     const value = values[tunable.var];
-    const control = element.querySelector("input");
+    const control = element.querySelector("input, select");
     const editing = document.activeElement === control;
     if (tunable.type === "bool") {
       control.checked = Boolean(value);
       element.querySelector(".value").textContent = value ? "on" : "off";
+    } else if (tunable.type === "choice") {
+      control.value = value;
     } else {
       if (!editing) control.value = value;
       element.querySelector(".value").textContent = editing ? control.value : value;
