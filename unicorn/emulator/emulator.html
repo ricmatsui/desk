@@ -182,6 +182,11 @@
         <button id="countdown">Start</button>
       </div>
       <div class="row">
+        <label>Adjust <input type="number" id="adjust-countdown-seconds" value="60"> s</label>
+        <span class="spacer"></span>
+        <button id="adjust-countdown">Adjust</button>
+      </div>
+      <div class="row">
         <button id="clock-start">Start clock</button>
         <button data-route="/test">Test</button>
       </div>
@@ -445,6 +450,8 @@ function setupActions() {
   });
 
   $("countdown").onclick = () => fetch(`/countdown?seconds=${$("countdown-seconds").value}&icon=${$("countdown-icon").value}`);
+
+  $("adjust-countdown").onclick = () => fetch(`/adjust-countdown?seconds=${$("adjust-countdown-seconds").value}`);
 
   $("clock-start").onclick = () => {
     const now = new Date();

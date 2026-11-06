@@ -190,6 +190,12 @@ impl Macropad {
                 })
                 .await
             }
+            "adjustCountdown" => {
+                self.send_unicorn_command(unicorn::Command::AdjustCountdown {
+                    minutes: message["minutes"].as_i64().unwrap(),
+                })
+                .await
+            }
             "cancelAnimation" => self.send_unicorn_command(unicorn::Command::CancelAnimation).await,
             _ => panic!("Unknown message kind: {}", kind),
         };

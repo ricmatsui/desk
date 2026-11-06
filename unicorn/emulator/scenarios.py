@@ -138,6 +138,37 @@ async def countdown_finishes():
     await call("countdown", args={"seconds": "3", "icon": "timer"})
 
 
+async def countdown_add():
+    await call("countdown", args={"seconds": "30", "icon": "timer"})
+    await until_playing("countdown_animation")
+    await wait(1500)
+    await call("adjust_countdown", args={"seconds": "300"})
+
+
+async def countdown_remove():
+    await call("countdown", args={"seconds": "330", "icon": "timer"})
+    await until_playing("countdown_animation")
+    await wait(1500)
+    await call("adjust_countdown", args={"seconds": "-300"})
+
+
+async def countdown_remove_past_zero():
+    seed(2)
+    await call("countdown", args={"seconds": "30", "icon": "timer"})
+    await until_playing("countdown_animation")
+    await wait(1500)
+    await call("adjust_countdown", args={"seconds": "-60"})
+
+
+async def countdown_adjust_then_interrupt():
+    await call("countdown", args={"seconds": "10", "icon": "timer"})
+    await until_playing("countdown_animation")
+    await wait(1500)
+    await call("adjust_countdown", args={"seconds": "60"})
+    await wait(1500)
+    await call("message", json=message("Lorem ipsum", icon="flag"))
+
+
 async def start_clock():
     """Starts the clock and waits until it has dropped in."""
     await call("start_clock", args={"start_timestamp": str(CLOCK_START_TIMESTAMP)})
@@ -179,6 +210,10 @@ SCENARIOS = [
     Scenario("inbox-countdown", "Inbox → countdown", "Seed 3 and let them settle, then a 5s countdown drops in and pushes the row out the bottom.", inbox_then_countdown),
     Scenario("countdown-cancel", "Countdown → cancel", "A 30s countdown drops in, then is cancelled: it switches off in the SWITCH_OFF_STYLE.", countdown_then_cancel),
     Scenario("countdown-end", "Countdown finishes", "Seed 2, then a 3s countdown drops in, runs out, drops away, and the inbox rises.", countdown_finishes),
+    Scenario("countdown-add", "Countdown → add", "A 30s countdown drops in, then 5m is added: the minutes roll in from the bottom.", countdown_add),
+    Scenario("countdown-remove", "Countdown → remove", "A 5m30s countdown drops in, then 5m is removed: the minutes roll in from the top, like a tick.", countdown_remove),
+    Scenario("countdown-remove-past-zero", "Countdown → remove past zero", "Seed 2, a 30s countdown drops in, then 1m is removed: it clamps to 00:00, drops away, and the inbox rises.", countdown_remove_past_zero),
+    Scenario("countdown-adjust-interrupted", "Countdown → add → message", "A 10s countdown gets 1m added, then a message interrupts: the countdown resumes with the added minute.", countdown_adjust_then_interrupt),
 ]
 
 

@@ -442,6 +442,105 @@ def show_error():
     time.sleep(0.3)
     clear_pixels()
 
+def pick_minutes(min_minutes, max_minutes, signed=False):
+    """Ruler picker: keys 5/8 step by 1 (5 while shift is held), key 2 confirms and key 1 cancels. Returns the picked
+    minutes, or None when cancelled."""
+    clear_pixels()
+    macropad.pixels[1] = colors_50['red'].pack()
+    macropad.pixels[2] = colors_50['green'].pack()
+    macropad.pixels[5] = colors_50['white'].pack()
+    macropad.pixels[8] = colors_50['white'].pack()
+    macropad.pixels[9] = colors_50['white'].pack()
+    macropad.pixels.show()
+
+    group = displayio.Group(
+        x=macropad.display.width//2,
+        y=macropad.display.height//2,
+    )
+
+    group.append(vectorio.Polygon(
+        pixel_shader=palettes['inverted'],
+        points=[
+            (0, 0),
+            (-4, -4),
+            (4, -4),
+        ],
+        x=0,
+        y=-5,
+    ))
+
+    scale_group = displayio.Group()
+
+    scale_group.append(vectorio.Rectangle(
+        pixel_shader=palettes['inverted'],
+        width=2,
+        height=20,
+        x=-1,
+        y=0
+    ))
+
+    for i in range(min_minutes//5, max_minutes//5 + 1):
+        if i == 0:
+            continue
+
+        height = 10 if i % 2 == 0 else 5
+
+        scale_group.append(vectorio.Rectangle(
+            pixel_shader=palettes['inverted'],
+            width=1,
+            height=height,
+            x=i*20,
+            y=0
+        ))
+
+    group.append(scale_group)
+
+    macropad.display.show(group)
+    macropad.display.refresh()
+
+    label = display_text.label.Label(
+        text='',
+        font=terminalio.FONT,
+        anchor_point=(0.5, 0),
+        anchored_position=(0, -25),
+    )
+    group.append(label)
+
+    display_minutes = 0
+    minutes = 0
+    while True:
+        key_event = get_key_event()
+
+        if key_event and key_event.pressed:
+            if key_state[9]:
+                if key_event.key_number == 5:
+                    minutes += 5
+
+                if key_event.key_number == 8:
+                    minutes -= 5
+            else:
+                if key_event.key_number == 5:
+                    minutes += 1
+
+                if key_event.key_number == 8:
+                    minutes -= 1
+
+        minutes = min(max_minutes, max(min_minutes, minutes))
+
+        if key_event and key_event.pressed:
+            if key_event.key_number == 2:
+                return minutes
+
+            if key_event.key_number == 1:
+                return None
+
+        display_minutes += (minutes - display_minutes) * 0.3
+
+        label.text = ('+' if signed and minutes > 0 else '') + str(minutes)
+        scale_group.x = -round(display_minutes * 4)
+
+        macropad.display.refresh()
+
 def set_option_tile_grid_selected(tile_grid, selected):
     palette = palettes['inverted' if selected else 'normal']
     tile_grid.pixel_shader = palette
@@ -768,111 +867,14 @@ def toggl_send_stop():
 def toggl_adjust_time():
     global state
 
-    clear_pixels()
-    macropad.pixels[1] = colors_50['red'].pack()
-    macropad.pixels[2] = colors_50['green'].pack()
-    macropad.pixels[5] = colors_50['white'].pack()
-    macropad.pixels[8] = colors_50['white'].pack()
-    macropad.pixels[9] = colors_50['white'].pack()
-    macropad.pixels.show()
+    minutes = pick_minutes(-45, 45)
 
-    group = displayio.Group(
-        x=macropad.display.width//2,
-        y=macropad.display.height//2,
-    )
+    if minutes is None:
+        state['name'] = 'toggl'
+        return
 
-    group.append(vectorio.Polygon(
-        pixel_shader=palettes['inverted'],
-        points=[
-            (0, 0),
-            (-4, -4),
-            (4, -4),
-        ],
-        x=0,
-        y=-5,
-    ))
-
-    scale_group = displayio.Group()
-
-    scale_group.append(vectorio.Rectangle(
-        pixel_shader=palettes['inverted'],
-        width=2,
-        height=20,
-        x=-1,
-        y=0
-    ))
-
-    max_adjustment = 45
-
-    for i in range(1, max_adjustment//5 + 1):
-        height = 10 if i % 2 == 0 else 5
-
-        scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['inverted'],
-            width=1,
-            height=height,
-            x=i*20,
-            y=0
-        ))
-
-        scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['inverted'],
-            width=1,
-            height=height,
-            x=-i*20,
-            y=0
-        ))
-
-    group.append(scale_group)
-
-    macropad.display.show(group)
-    macropad.display.refresh()
-
-    label = display_text.label.Label(
-        text='',
-        font=terminalio.FONT,
-        anchor_point=(0.5, 0),
-        anchored_position=(0, -25),
-    )
-    group.append(label)
-
-    display_minutes = 0
-    minutes = 0
-    while True:
-        key_event = get_key_event()
-
-        if key_event and key_event.pressed:
-            if key_state[9]:
-                if key_event.key_number == 5:
-                    minutes += 5
-
-                if key_event.key_number == 8:
-                    minutes -= 5
-            else:
-                if key_event.key_number == 5:
-                    minutes += 1
-
-                if key_event.key_number == 8:
-                    minutes -= 1
-
-        minutes = min(max_adjustment, max(-max_adjustment, minutes))
-
-        if key_event and key_event.pressed:
-            if key_event.key_number == 2:
-                state['name'] = 'toggl_send_adjust_time'
-                state['toggl_adjust_minutes'] = minutes
-                return
-
-            if key_event.key_number == 1:
-                state['name'] = 'toggl'
-                return
-
-        display_minutes += (minutes - display_minutes) * 0.3
-
-        label.text = str(minutes)
-        scale_group.x = -round(display_minutes * 4)
-
-        macropad.display.refresh()
+    state['name'] = 'toggl_send_adjust_time'
+    state['toggl_adjust_minutes'] = minutes
 
 def toggl_send_adjust_time():
     global state
@@ -931,8 +933,12 @@ def unicorn():
                 break
 
             if key_event.key_number == 3:
-                state['name'] = 'unicorn_countdown'
-                break
+                if key_state[9]:
+                    state['name'] = 'unicorn_adjust_countdown'
+                    break
+                else:
+                    state['name'] = 'unicorn_countdown'
+                    break
 
             if key_event.key_number == 4:
                 state['name'] = 'unicorn_cancel_animation'
@@ -974,119 +980,38 @@ def unicorn_send_start_clock():
 def unicorn_countdown():
     global state
 
-    clear_pixels()
-    macropad.pixels[1] = colors_50['red'].pack()
-    macropad.pixels[2] = colors_50['green'].pack()
-    macropad.pixels[5] = colors_50['white'].pack()
-    macropad.pixels[8] = colors_50['white'].pack()
-    macropad.pixels[9] = colors_50['white'].pack()
-    macropad.pixels.show()
+    minutes = pick_minutes(0, 60)
 
-    group = displayio.Group(
-        x=macropad.display.width//2,
-        y=macropad.display.height//2,
-    )
-
-    group.append(vectorio.Polygon(
-        pixel_shader=palettes['inverted'],
-        points=[
-            (0, 0),
-            (-4, -4),
-            (4, -4),
-        ],
-        x=0,
-        y=-5,
-    ))
-
-    scale_group = displayio.Group()
-
-    scale_group.append(vectorio.Rectangle(
-        pixel_shader=palettes['inverted'],
-        width=2,
-        height=20,
-        x=-1,
-        y=0
-    ))
-
-    max_adjustment = 60
-
-    for i in range(1, max_adjustment//5 + 1):
-        height = 10 if i % 2 == 0 else 5
-
-        scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['inverted'],
-            width=1,
-            height=height,
-            x=i*20,
-            y=0
+    if minutes is not None:
+        send_message(dict(
+            kind='startCountdown',
+            minutes=minutes,
         ))
 
-        scale_group.append(vectorio.Rectangle(
-            pixel_shader=palettes['inverted'],
-            width=1,
-            height=height,
-            x=-i*20,
-            y=0
+        message = wait_for_reply_animated(3, gradients_50['yellow'])
+        check_response(message, 3, colors_50['yellow'])
+
+        reset_activity_timer()
+
+    state['name'] = 'unicorn'
+
+def unicorn_adjust_countdown():
+    global state
+
+    minutes = pick_minutes(-60, 60, signed=True)
+
+    if minutes:
+        send_message(dict(
+            kind='adjustCountdown',
+            minutes=minutes,
         ))
 
-    group.append(scale_group)
+        message = wait_for_reply_animated(3, gradients_50['yellow'])
+        check_response(message, 3, colors_50['yellow'])
 
-    macropad.display.show(group)
-    macropad.display.refresh()
+        reset_activity_timer()
 
-    label = display_text.label.Label(
-        text='',
-        font=terminalio.FONT,
-        anchor_point=(0.5, 0),
-        anchored_position=(0, -25),
-    )
-    group.append(label)
-
-    display_minutes = 0
-    minutes = 0
-    while True:
-        key_event = get_key_event()
-
-        if key_event and key_event.pressed:
-            if key_state[9]:
-                if key_event.key_number == 5:
-                    minutes += 5
-
-                if key_event.key_number == 8:
-                    minutes -= 5
-            else:
-                if key_event.key_number == 5:
-                    minutes += 1
-
-                if key_event.key_number == 8:
-                    minutes -= 1
-
-        minutes = min(max_adjustment, max(-max_adjustment, minutes))
-
-        if key_event and key_event.pressed:
-            if key_event.key_number == 1:
-                state['name'] = 'unicorn'
-                return
-
-            if key_event.key_number == 2:
-                send_message(dict(
-                    kind='startCountdown',
-                    minutes=minutes,
-                ))
-
-                message = wait_for_reply_animated(3, gradients_50['yellow'])
-                check_response(message, 3, colors_50['yellow'])
-
-                reset_activity_timer()
-                state['name'] = 'unicorn'
-                return
-
-        display_minutes += (minutes - display_minutes) * 0.3
-
-        label.text = str(minutes)
-        scale_group.x = -round(display_minutes * 4)
-
-        macropad.display.refresh()
+    state['name'] = 'unicorn'
 
 def unicorn_cancel_animation():
     global state
@@ -1230,6 +1155,7 @@ state_handlers = dict(
     unicorn_send_clear_inbox=unicorn_send_clear_inbox,
     unicorn_send_start_clock=unicorn_send_start_clock,
     unicorn_countdown=unicorn_countdown,
+    unicorn_adjust_countdown=unicorn_adjust_countdown,
     unicorn_cancel_animation=unicorn_cancel_animation,
 
     bluetooth=bluetooth,

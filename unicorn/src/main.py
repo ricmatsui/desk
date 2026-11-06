@@ -277,6 +277,18 @@ async def countdown(request):
     enqueue_countdown_animation(timestamp, icon)
     return 'started'
 
+@server.route("/adjust-countdown", methods=["GET"])
+def adjust_countdown(request):
+    global countdown_target
+
+    if countdown_target is None:
+        return 'no countdown', 404
+
+    now = time.ticks_ms()
+    remaining_ms = time.ticks_diff(countdown_target, now) + int(request.args['seconds']) * 1000
+    countdown_target = time.ticks_add(now, min(MAX_COUNTDOWN_SECONDS * 1000, max(0, remaining_ms)))
+    return 'adjusted'
+
 @server.route("/cancel-animation", methods=["GET"])
 def cancel_animation(request):
     global animation_cancel
@@ -762,21 +774,28 @@ async def clock_animation(offset):
 
                 unicorn.update(graphics)
 
+countdown_target = None
+
 def enqueue_countdown_animation(timestamp, icon):
     enqueue_animation(countdown_animation(timestamp, icon), priority=2)
 
 async def countdown_animation(timestamp, icon):
+    """Counts down to timestamp. The deadline lives in countdown_target while this runs, so /adjust-countdown can move
+    it."""
+    global countdown_target
+
     graphics.set_font(font)
 
     sleep_reset()
 
     diff_seconds = min(MAX_COUNTDOWN_SECONDS, max(0, timestamp - time.time()))
 
-    target = time.ticks_add(time.ticks_ms(), diff_seconds * 1000)
+    countdown_target = time.ticks_add(time.ticks_ms(), diff_seconds * 1000)
 
     y = -2 - 11 - COUNTDOWN_PUSH_GAP
 
     clock = None
+    timer = None
 
     try:
         frame = 0
@@ -787,7 +806,7 @@ async def countdown_animation(timestamp, icon):
             if y < -2:
                 y += 1
 
-            diff = time.ticks_diff(target, time.ticks_ms()) / 1000.0
+            diff = time.ticks_diff(countdown_target, time.ticks_ms()) / 1000.0
 
             if diff < -5:
                 if y < 9:
@@ -795,6 +814,7 @@ async def countdown_animation(timestamp, icon):
                 else:
                     break
 
+            previous_timer = timer
             timer = max(0, diff)
             minute = math.floor(timer / 60)
             second = math.floor(timer % 60)
@@ -843,7 +863,10 @@ async def countdown_animation(timestamp, icon):
                             kind = 'fixed'
                             start = i
                 ranges.append((kind, start, len(previous_clock)))
-                
+
+                # Ticking down rolls new digits in from the top; time added rolls them in from the bottom
+                direction = -1 if timer > previous_timer else 1
+
                 movement_y = 0
                 padding = 2
                 while True:
@@ -871,8 +894,8 @@ async def countdown_animation(timestamp, icon):
                         elif kind == 'moving':
                             text = clock[start:end]
                             previous_text = previous_clock[start:end]
-                            graphics.text(text, x + movement_x, y + movement_y - 11 - padding, scale=1, spacing=2)
-                            graphics.text(previous_text, x + movement_x, y + movement_y, scale=1, spacing=2)
+                            graphics.text(text, x + movement_x, y + direction * (movement_y - 11 - padding), scale=1, spacing=2)
+                            graphics.text(previous_text, x + movement_x, y + direction * movement_y, scale=1, spacing=2)
                             movement_x += graphics.measure_text(text, scale=1, spacing=2)
 
                     if timer < RAINBOW_TIMER_THRESHOLD:
@@ -882,8 +905,12 @@ async def countdown_animation(timestamp, icon):
 
         enqueue_inbox_animation()
     except AnimationInterrupt:
-        enqueue_countdown_animation(timestamp, icon)
+        # Re-queue from the current deadline so adjustments survive
+        remaining_seconds = (time.ticks_diff(countdown_target, time.ticks_ms()) + 500) // 1000
+        enqueue_countdown_animation(time.time() + remaining_seconds, icon)
         raise
+    finally:
+        countdown_target = None
 
 async def spacex_animation():
     graphics.set_font(font)

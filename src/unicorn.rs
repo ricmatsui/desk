@@ -64,6 +64,7 @@ pub enum Command {
     ClearInbox,
     StartClock,
     StartCountdown { minutes: i64 },
+    AdjustCountdown { minutes: i64 },
     CancelAnimation,
 }
 
@@ -93,6 +94,12 @@ impl Message<Command> for Unicorn {
                 self.send(self.client.get(self.url("/countdown")).query(&[
                     ("seconds", (minutes * 60).to_string()),
                     ("icon", "timer".to_string()),
+                ]))
+                .await
+            }
+            Command::AdjustCountdown { minutes } => {
+                self.send(self.client.get(self.url("/adjust-countdown")).query(&[
+                    ("seconds", (minutes * 60).to_string()),
                 ]))
                 .await
             }
