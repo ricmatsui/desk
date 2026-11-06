@@ -63,8 +63,8 @@ pub enum Command {
     ReadInbox,
     ClearInbox,
     StartClock,
-    StartCountdown { minutes: i64 },
-    AdjustCountdown { minutes: i64 },
+    StartCountdown { seconds: i64 },
+    AdjustCountdown { seconds: i64 },
     CancelAnimation,
 }
 
@@ -90,16 +90,16 @@ impl Message<Command> for Unicorn {
                 )]))
                 .await
             }
-            Command::StartCountdown { minutes } => {
+            Command::StartCountdown { seconds } => {
                 self.send(self.client.get(self.url("/countdown")).query(&[
-                    ("seconds", (minutes * 60).to_string()),
+                    ("seconds", seconds.to_string()),
                     ("icon", "timer".to_string()),
                 ]))
                 .await
             }
-            Command::AdjustCountdown { minutes } => {
+            Command::AdjustCountdown { seconds } => {
                 self.send(self.client.get(self.url("/adjust-countdown")).query(&[
-                    ("seconds", (minutes * 60).to_string()),
+                    ("seconds", seconds.to_string()),
                 ]))
                 .await
             }

@@ -442,9 +442,10 @@ def show_error():
     time.sleep(0.3)
     clear_pixels()
 
-def pick_minutes(min_minutes, max_minutes, signed=False):
-    """Ruler picker: keys 5/8 step by 1 (5 while shift is held), key 2 confirms and key 1 cancels. Returns the picked
-    minutes, or None when cancelled."""
+def pick_duration(min_amount, max_amount, signed=False, allow_seconds=False):
+    """Ruler picker: keys 5/8 step by 1 (5 while shift is held), key 2 confirms and key 1 cancels. The amount is
+    minutes, or seconds when confirmed with shift held and allow_seconds is set. Returns the picked duration in
+    seconds, or None when cancelled."""
     clear_pixels()
     macropad.pixels[1] = colors_50['red'].pack()
     macropad.pixels[2] = colors_50['green'].pack()
@@ -479,7 +480,7 @@ def pick_minutes(min_minutes, max_minutes, signed=False):
         y=0
     ))
 
-    for i in range(min_minutes//5, max_minutes//5 + 1):
+    for i in range(min_amount//5, max_amount//5 + 1):
         if i == 0:
             continue
 
@@ -506,38 +507,41 @@ def pick_minutes(min_minutes, max_minutes, signed=False):
     )
     group.append(label)
 
-    display_minutes = 0
-    minutes = 0
+    display_amount = 0
+    amount = 0
     while True:
         key_event = get_key_event()
 
         if key_event and key_event.pressed:
             if key_state[9]:
                 if key_event.key_number == 5:
-                    minutes += 5
+                    amount += 5
 
                 if key_event.key_number == 8:
-                    minutes -= 5
+                    amount -= 5
             else:
                 if key_event.key_number == 5:
-                    minutes += 1
+                    amount += 1
 
                 if key_event.key_number == 8:
-                    minutes -= 1
+                    amount -= 1
 
-        minutes = min(max_minutes, max(min_minutes, minutes))
+        amount = min(max_amount, max(min_amount, amount))
 
         if key_event and key_event.pressed:
             if key_event.key_number == 2:
-                return minutes
+                if allow_seconds and key_state[9]:
+                    return amount
+
+                return amount * 60
 
             if key_event.key_number == 1:
                 return None
 
-        display_minutes += (minutes - display_minutes) * 0.3
+        display_amount += (amount - display_amount) * 0.3
 
-        label.text = ('+' if signed and minutes > 0 else '') + str(minutes)
-        scale_group.x = -round(display_minutes * 4)
+        label.text = ('+' if signed and amount > 0 else '') + str(amount)
+        scale_group.x = -round(display_amount * 4)
 
         macropad.display.refresh()
 
@@ -867,14 +871,14 @@ def toggl_send_stop():
 def toggl_adjust_time():
     global state
 
-    minutes = pick_minutes(-45, 45)
+    seconds = pick_duration(-45, 45)
 
-    if minutes is None:
+    if seconds is None:
         state['name'] = 'toggl'
         return
 
     state['name'] = 'toggl_send_adjust_time'
-    state['toggl_adjust_minutes'] = minutes
+    state['toggl_adjust_minutes'] = seconds // 60
 
 def toggl_send_adjust_time():
     global state
@@ -980,12 +984,12 @@ def unicorn_send_start_clock():
 def unicorn_countdown():
     global state
 
-    minutes = pick_minutes(0, 60)
+    seconds = pick_duration(0, 60, allow_seconds=True)
 
-    if minutes is not None:
+    if seconds is not None:
         send_message(dict(
             kind='startCountdown',
-            minutes=minutes,
+            seconds=seconds,
         ))
 
         message = wait_for_reply_animated(3, gradients_50['yellow'])
@@ -998,12 +1002,12 @@ def unicorn_countdown():
 def unicorn_adjust_countdown():
     global state
 
-    minutes = pick_minutes(-60, 60, signed=True)
+    seconds = pick_duration(-60, 60, signed=True, allow_seconds=True)
 
-    if minutes:
+    if seconds:
         send_message(dict(
             kind='adjustCountdown',
-            minutes=minutes,
+            seconds=seconds,
         ))
 
         message = wait_for_reply_animated(3, gradients_50['yellow'])

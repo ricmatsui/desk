@@ -186,13 +186,13 @@ impl Macropad {
             "startClock" => self.send_unicorn_command(unicorn::Command::StartClock).await,
             "startCountdown" => {
                 self.send_unicorn_command(unicorn::Command::StartCountdown {
-                    minutes: message["minutes"].as_i64().unwrap(),
+                    seconds: message["seconds"].as_i64().unwrap(),
                 })
                 .await
             }
             "adjustCountdown" => {
                 self.send_unicorn_command(unicorn::Command::AdjustCountdown {
-                    minutes: message["minutes"].as_i64().unwrap(),
+                    seconds: message["seconds"].as_i64().unwrap(),
                 })
                 .await
             }
