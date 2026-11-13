@@ -273,7 +273,7 @@ async def countdown(request):
                 pass
         timestamp = int(request.args['timestamp'])
 
-    icon = {'calendar': CALENDAR, 'flag': FLAG, 'timer': TIMER}[request.args['icon']]
+    icon = ICONS[request.args['icon']]
     enqueue_countdown_animation(timestamp, icon)
     return 'started'
 

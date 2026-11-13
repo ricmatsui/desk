@@ -95,7 +95,11 @@
             <fieldset>
                 <legend>Icon</legend>
                 <label><input type="radio" name="icon" value="calendar" checked>Calendar</label>
+                <label><input type="radio" name="icon" value="cat">Cat</label>
+                <label><input type="radio" name="icon" value="clock">Clock</label>
+                <label><input type="radio" name="icon" value="envelope">Envelope</label>
                 <label><input type="radio" name="icon" value="flag">Flag</label>
+                <label><input type="radio" name="icon" value="siren">Siren</label>
                 <label><input type="radio" name="icon" value="timer">Timer</label>
             </fieldset>
         </p>
@@ -121,6 +125,18 @@
 
     <form data-format="json" action="/message" method="POST">
         <textarea name="text" rows="4" cols="20">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</textarea>
+        <p>
+            <fieldset>
+                <legend>Icon</legend>
+                <label><input type="radio" name="icon" value="calendar">Calendar</label>
+                <label><input type="radio" name="icon" value="cat">Cat</label>
+                <label><input type="radio" name="icon" value="clock">Clock</label>
+                <label><input type="radio" name="icon" value="envelope" checked>Envelope</label>
+                <label><input type="radio" name="icon" value="flag">Flag</label>
+                <label><input type="radio" name="icon" value="siren">Siren</label>
+                <label><input type="radio" name="icon" value="timer">Timer</label>
+            </fieldset>
+        </p>
         <p>
             <label>
                 <input type="hidden" name="effects" value="__EMPTY__">
