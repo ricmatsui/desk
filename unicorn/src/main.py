@@ -23,6 +23,31 @@ HOLD_TIME = 60
 TEXT = "The quick brown fox jumps over the lazy dog."
 RAINBOW_TIMER_THRESHOLD = 10
 RAINBOW_FRAME_MULTIPLIER = 2
+WAVE_SHAPES = [
+    [1, 2, 3, 2, 1],
+    [1, 1, 2, 1, 1],
+    [1, 3, 5, 3, 1],
+    [2, 5, 11, 5, 2],
+    [1, 1, 2, 4, 7, 11, 11, 11, 7, 4, 2, 1, 1],
+    [1, 2, 4, 7, 11, 7, 4, 2, 1],
+    [2, 5, 7, 9, 10, 11, 11, 11, 10, 9, 7, 5, 2],
+    [1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 7, 8, 8, 9, 9, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 10, 10, 10, 9,
+     9, 8, 8, 7, 7, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1],
+    [1, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 5, 5, 4, 3, 3, 2, 2, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7, 8, 8, 8, 8, 8, 7, 7, 6, 6, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1,
+     1, 1],
+    [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+     -2, -2, -1, -1, -1, -1, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8,
+     8, 7, 7, 7, 7, 6, 6, 6, 5, 5, 4, 4, 3, 3, 3, 2, 2, 1, 1, 1, 0, 0, 0, -1, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2,
+     -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+    # A warped Gaussian wave packet: https://www.desmos.com/calculator/jqmhuewo4v
+    # Based on A*e^(-(g/s)^2/2)*cos(0.16*g/L) with g = a + (e^(k*(x-a)) - 1)/k stretching it from the anchor a
+    # (A=8, s=3.3, L=0.4, a=-0.7, k=-0.1). Baked at 3x width and flipped, with the trailing lift cut short by hand.
+    [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 7, 8, 8, 8, 8, 8, 7, 6, 5, 4, 3, 2,
+     1, 0, 0, -1, -1, -1, -1, -1, -1, -1],
+]
+WAVE_SHAPE = 11
+WAVE_SPEED = 1
 MAX_COUNTDOWN_SECONDS = 99 * 60 + 59
 INBOX_CENTER = True
 INBOX_SLOT_WIDTH = 11
@@ -41,6 +66,8 @@ MESSAGE_TRIO_PAUSE = 20
 MESSAGE_ICON_PUSH = True
 MESSAGE_PUSH_GAP = 2
 COUNTDOWN_PUSH_GAP = 2
+COUNTDOWN_ZERO_HOLD = 30
+COUNTDOWN_WAVE_INTERVAL = 5
 SWITCH_OFF_DISSOLVE = 0
 SWITCH_OFF_COLLAPSE = 1
 SWITCH_OFF_SAND = 2
@@ -797,6 +824,9 @@ async def countdown_animation(timestamp, icon):
     clock = None
     timer = None
 
+    waves = 0
+    wave = None
+
     try:
         frame = 0
         while True:
@@ -808,7 +838,17 @@ async def countdown_animation(timestamp, icon):
 
             diff = time.ticks_diff(countdown_target, time.ticks_ms()) / 1000.0
 
-            if diff < -5:
+            # A wave ripples through every COUNTDOWN_WAVE_INTERVAL seconds of holding at zero
+            if diff <= 0:
+                wave_count = math.floor(-diff / COUNTDOWN_WAVE_INTERVAL)
+                if wave_count > waves and -diff < COUNTDOWN_ZERO_HOLD:
+                    waves = wave_count
+                    wave = Wave(WAVE_SHAPES[WAVE_SHAPE])
+            else:
+                waves = 0
+                wave = None
+
+            if diff < -COUNTDOWN_ZERO_HOLD:
                 if y < 9:
                     y += 1
                 else:
@@ -837,6 +877,12 @@ async def countdown_animation(timestamp, icon):
                     apply_rainbow(frame)
 
                 draw_last_frame_down(y + 13 + COUNTDOWN_PUSH_GAP)
+
+                if wave is not None:
+                    apply_wave(wave)
+                    wave.x += WAVE_SPEED
+                    if wave.x >= WIDTH:
+                        wave = None
 
                 unicorn.update(graphics)
             else:
@@ -1109,6 +1155,54 @@ def apply_rainbow(frame):
                 pen = rainbow_pens[pen_index]
                 graphics.set_pen(pen)
                 graphics.pixel(i, j)
+
+WAVE_PUSH_OFFSET = 16
+
+class Wave:
+    """A shape from WAVE_SHAPES travelling across the display. It starts just off the left edge, and the caller moves it
+    by changing x, the column under its first push."""
+
+    def __init__(self, shape):
+        self.pushes = bytearray(push + WAVE_PUSH_OFFSET for push in shape)
+        self.x = -len(shape)
+
+@micropython.viper # pyright: ignore
+def apply_wave(wave):
+    """Shifts each column under the wave by its push, down for positive pushes and up for negative ones, clearing the
+    rows they leave behind. Pixels shifted past the edge are clipped. Each 0x00RRGGBB pixel is copied as one word."""
+    pixels = ptr32(graphics_view) # pyright: ignore
+    pushes = ptr8(wave.pushes) # pyright: ignore
+    x = int(wave.x)
+    count = int(len(wave.pushes))
+    width = int(WIDTH)
+    height = int(HEIGHT)
+    offset = int(WAVE_PUSH_OFFSET)
+
+    # Only the columns on the display
+    start = -x if x < 0 else 0
+    end = width - x if x + count > width else count
+    for i in range(start, end):
+        push = pushes[i] - offset
+        if push == 0:
+            continue
+        column = x + i
+        # Walk away from the push, so each pixel is read before anything is copied over it
+        if push > 0:
+            y = height - 1
+            while y >= push:
+                pixels[column + y * width] = pixels[column + (y - push) * width]
+                y -= 1
+            while y >= 0:
+                pixels[column + y * width] = 0
+                y -= 1
+        else:
+            y = 0
+            while y < height + push:
+                pixels[column + y * width] = pixels[column + (y - push) * width]
+                y += 1
+            while y < height:
+                pixels[column + y * width] = 0
+                y += 1
 
 # https://github.com/halfmage/pixelarticons/
 # With modifications

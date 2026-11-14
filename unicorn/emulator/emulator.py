@@ -39,6 +39,8 @@ def run():
         viper=lambda f: f,
         const=lambda value: value,
     )
+    builtins.ptr8 = lambda buffer: memoryview(buffer).cast("B")
+    builtins.ptr32 = lambda buffer: memoryview(buffer).cast("B").cast("I")
     builtins.__import__ = overriding_import(builtins.__import__)
 
     import runtime

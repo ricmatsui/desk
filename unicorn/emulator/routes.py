@@ -40,6 +40,10 @@ TUNABLES = [
     {"var": "MESSAGE_PUSH_GAP", "type": "int", "min": 0, "max": 5, "step": 1, "unit": "px"},
     {"var": "MESSAGE_ICON_GAP", "type": "int", "min": 0, "max": 10, "step": 1, "unit": "px"},
     {"var": "COUNTDOWN_PUSH_GAP", "type": "int", "min": 0, "max": 5, "step": 1, "unit": "px"},
+    {"var": "COUNTDOWN_ZERO_HOLD", "type": "int", "min": 0, "max": 120, "step": 5, "unit": "s"},
+    {"var": "COUNTDOWN_WAVE_INTERVAL", "type": "int", "min": 1, "max": 15, "step": 1, "unit": "s"},
+    {"var": "WAVE_SHAPE", "type": "choice", "options_var": "WAVE_SHAPES"},
+    {"var": "WAVE_SPEED", "type": "int", "min": 1, "max": 5, "step": 1, "unit": "cols/frame"},
     {"var": "SWITCH_OFF_STYLE", "type": "choice", "options": ["dissolve", "collapse", "sand"]},
     {"var": "SWITCH_OFF_PAUSE", "type": "int", "min": 0, "max": 100, "step": 5, "unit": "frames"},
     {"var": "DISSOLVE_FRAMES", "type": "int", "min": 1, "max": 100, "step": 1, "unit": "frames"},
@@ -144,9 +148,17 @@ def describe_config():
         "width": main.WIDTH,
         "height": main.HEIGHT,
         "icons": sorted(main.ICONS),
-        "tunables": [dict(t, default=TUNABLE_DEFAULTS[t["var"]]) for t in available_tunables()],
+        "tunables": [describe_tunable(t) for t in available_tunables()],
         "scenarios": [{"id": s.id, "label": s.label, "description": s.description} for s in scenarios.SCENARIOS],
     }
+
+
+def describe_tunable(tunable):
+    """A choice can take its options from a list in main.py, labelled by each entry."""
+    description = dict(tunable, default=TUNABLE_DEFAULTS[tunable["var"]])
+    if "options_var" in tunable:
+        description["options"] = [str(option) for option in getattr(runtime.main, tunable["options_var"])]
+    return description
 
 
 def describe_state():
