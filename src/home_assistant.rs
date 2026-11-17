@@ -23,6 +23,7 @@ impl Actor for HomeAssistant {
 
         let calendar_actor_ref = actor_ref.clone();
         let message_actor_ref = actor_ref.clone();
+        let heartbeat_actor_ref = actor_ref.clone();
 
         tokio::spawn(async move {
             let app = Router::new()
@@ -53,6 +54,13 @@ impl Actor for HomeAssistant {
                             StatusCode::OK
                         },
                     ),
+                )
+                .route(
+                    "/heartbeat",
+                    post(|| async move {
+                        heartbeat_actor_ref.tell(HomeAssistantHeartbeat).await.unwrap();
+                        StatusCode::OK
+                    }),
                 );
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:9001").await.unwrap();
@@ -177,6 +185,26 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
                     id: message.payload["id"].as_str().map(|i| i.to_string()),
                     sound: message.payload["sound"].as_str().map(|s| s.to_string()),
                 }),
+            })
+            .await
+            .unwrap();
+    }
+}
+
+pub struct HomeAssistantHeartbeat;
+
+impl Message<HomeAssistantHeartbeat> for HomeAssistant {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _: HomeAssistantHeartbeat,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.broker_ref
+            .tell(broker::Publish {
+                topic: "heartbeat".parse().unwrap(),
+                message: crate::BrokerMessage::Heartbeat,
             })
             .await
             .unwrap();

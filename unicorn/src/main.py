@@ -355,11 +355,7 @@ async def message(request):
 
 @server.route("/remove-message", methods=["GET"])
 async def remove_message(request):
-    message = find_inbox_message(request.args['id'])
-    if message is not None:
-        # Expiring it lets the inbox animation drop it out
-        message['expires_ms'] = time.ticks_ms()
-        enqueue_inbox_animation()
+    remove_inbox_message(request.args['id'])
     return 'removed'
 
 @server.route("/clear-inbox", methods=["GET"])
@@ -392,6 +388,43 @@ async def start_clock(request):
 async def spacex(request):
     enqueue_animation(spacex_animation(), priority=2, id='spacex')
     return 'started'
+
+HUB_TIMEOUT_SECONDS = 900
+HUB_WATCH_SECONDS = 60
+HUB_OFFLINE_MESSAGE_ID = 'offline'
+
+hub_heartbeat_ms = time.ticks_ms()
+is_hub_offline = False
+
+@server.route("/heartbeat", methods=["GET"])
+def heartbeat(request):
+    global hub_heartbeat_ms
+    hub_heartbeat_ms = time.ticks_ms()
+    return 'alive'
+
+async def watch_hub():
+    while True:
+        await asyncio.sleep_ms(HUB_WATCH_SECONDS * 1000)
+        check_hub()
+
+def check_hub():
+    global is_hub_offline
+
+    was_hub_offline = is_hub_offline
+    is_hub_offline = time.ticks_diff(time.ticks_ms(), hub_heartbeat_ms) >= HUB_TIMEOUT_SECONDS * 1000
+
+    if is_hub_offline and not was_hub_offline:
+        enqueue_animation(message_animation({
+            'text': 'OFFLINE',
+            'effects': [],
+            'read': False,
+            'icon': 'cancel',
+            'id': HUB_OFFLINE_MESSAGE_ID,
+        }), priority=1)
+
+    # Checked every tick rather than on the heartbeat, since the message only reaches the inbox once it has played
+    if not is_hub_offline:
+        remove_inbox_message(HUB_OFFLINE_MESSAGE_ID)
 
 async def test_animation():
     graphics.set_font(font)
@@ -1290,9 +1323,22 @@ SIREN = bytearray([
     0b00000001,0b00001000,
     0b00000000,0b00000000, # Siren
 ])
+CANCEL = bytearray([
+    0b00000011,0b11100000,
+    0b00000100,0b00010000,
+    0b00001010,0b00001000,
+    0b00001001,0b00001000,
+    0b00001000,0b10001000,
+    0b00001000,0b01001000,
+    0b00001000,0b00101000,
+    0b00000100,0b00010000,
+    0b00000011,0b11100000,
+    0b00000000,0b00000000, # Cancel
+])
 
 ICONS = {
     'calendar': CALENDAR,
+    'cancel': CANCEL,
     'cat': CAT,
     'clock': CLOCK,
     'envelope': ENVELOPE,
@@ -1425,6 +1471,13 @@ def replace_inbox_message(message):
     existing.clear()
     existing.update(message)
     return True
+
+def remove_inbox_message(id):
+    message = find_inbox_message(id)
+    if message is not None:
+        # Expiring it lets the inbox animation drop it out
+        message['expires_ms'] = time.ticks_ms()
+        enqueue_inbox_animation()
 
 def find_inbox_message(id):
     """The unexpired inbox message with this id, if any. An expired one is on its way out, so a new one is added instead."""
@@ -1591,6 +1644,7 @@ def sleep_reset():
 
 async def main():
     asyncio.create_task(server.start_server(host="0.0.0.0", port=80, debug=True))
+    asyncio.create_task(watch_hub())
 
     graphics.set_pen(GREEN)
     graphics.pixel(0, 0)

@@ -45,6 +45,14 @@ impl Actor for Unicorn {
             .await
             .unwrap();
 
+        broker_ref
+            .tell(broker::Subscribe {
+                topic: "heartbeat".parse().unwrap(),
+                recipient: actor_ref.clone().recipient(),
+            })
+            .await
+            .unwrap();
+
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -151,6 +159,13 @@ impl Message<crate::BrokerMessage> for Unicorn {
                 })))
                 .await
                 .unwrap();
+            }
+            crate::BrokerMessage::Heartbeat => {
+                tracing::info!("heartbeat");
+
+                self.send(self.client.get(self.url("/heartbeat")))
+                    .await
+                    .unwrap();
             }
             crate::BrokerMessage::RemoveMessage(id) => {
                 tracing::info!("remove message {}", id);

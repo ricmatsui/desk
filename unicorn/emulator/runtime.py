@@ -16,6 +16,9 @@ HISTORY_FRAMES = 2000
 # The loaded main.py module, set by emulator.py before it executes
 main = None
 
+# Stops routes.stand_in_hub's heartbeats, as if the hub went offline
+hub_offline = False
+
 
 class VirtualClock:
     """Clock behind time.ticks_ms/time.time/asyncio.sleep_ms that can be paused, stepped and scaled."""

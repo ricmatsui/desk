@@ -22,6 +22,9 @@ INSTANCE_ID = uuid.uuid4().hex
 # State also changes without a new frame (pause, tune, an animation finishing), so it's rechecked at least this often
 STATE_CHECK_SECONDS = 0.1
 
+# How often Home Assistant sends the hub a heartbeat to relay; within main.py's HUB_TIMEOUT_SECONDS
+HUB_HEARTBEAT_MS = 60_000
+
 # Globals in main.py exposed as controls; set through main.py's own /tune route
 TUNABLES = [
     {"var": "INBOX_CENTER", "type": "bool"},
@@ -70,6 +73,7 @@ TUNABLES = [
 def install(app):
     # Started first so the emulator still restarts on the next change if anything below fails
     asyncio.create_task(restart_on_change())
+    asyncio.create_task(stand_in_hub())
 
     @app.get("/emulator")
     async def emulator_page(request):
@@ -202,6 +206,14 @@ async def restart_on_change():
         if runtime.source_mtimes() != initial:
             print("[emulator] source changed, restarting")
             runtime.restart()
+
+
+async def stand_in_hub():
+    """Sends main.py heartbeats like the hub does, so its inbox only shows the hub offline in the hub-offline scenario."""
+    while True:
+        if not runtime.hub_offline:
+            runtime.main.heartbeat(None)
+        await runtime.clock.sleep_ms(HUB_HEARTBEAT_MS)
 
 
 async def restart_soon():

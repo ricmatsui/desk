@@ -34,6 +34,7 @@ pub enum BrokerMessage {
     ServoY(u32),
     StartFireworks,
     StopFireworks,
+    Heartbeat,
 }
 
 #[derive(Debug, Clone)]

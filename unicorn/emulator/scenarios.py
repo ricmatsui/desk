@@ -169,6 +169,25 @@ async def countdown_adjust_then_interrupt():
     await call("message", json=message("Lorem ipsum", icon="flag"))
 
 
+async def hub_offline():
+    main = runtime.main
+    timeout = main.HUB_TIMEOUT_SECONDS
+    seed(2)
+    # Shortened, and checked directly rather than on watch_hub's tick, so the scenario doesn't wait out either
+    main.HUB_TIMEOUT_SECONDS = 3
+    runtime.hub_offline = True
+    try:
+        await wait(3000)
+        main.check_hub()
+        await until_in_inbox(main.HUB_OFFLINE_MESSAGE_ID)
+        await wait(3000)
+    finally:
+        main.HUB_TIMEOUT_SECONDS = timeout
+        runtime.hub_offline = False
+    await call("heartbeat")
+    main.check_hub()
+
+
 async def start_clock():
     """Starts the clock and waits until it has dropped in."""
     await call("start_clock", args={"start_timestamp": str(CLOCK_START_TIMESTAMP)})
@@ -201,6 +220,7 @@ SCENARIOS = [
     Scenario("add", "Add in place", "Seed 2, then a 3rd is added without playing: the row shifts to make room, then it rises.", add_in_place),
     Scenario("remove", "Remove by id", "Seed 2, a siren with id datadog arrives, then is removed: it drops out like an expiry.", remove_by_id),
     Scenario("replace", "Replace by id", "A siren with id datadog arrives, then another with the same id replaces it quietly, without playing.", replace_by_id),
+    Scenario("hub-offline", "Hub offline", "Seed 2, then the hub stops sending heartbeats: after a shortened 3s timeout an OFFLINE cancel icon arrives, then a heartbeat drops it out.", hub_offline),
     Scenario("replay", "Replay slide-in", "Re-slide the current inbox from the bottom.", replay_slide_in),
     Scenario("clock-message", "Clock → message", "The clock drops in, then a message pushes it up. The clock doesn't come back.", clock_then_message),
     Scenario("clock-countdown", "Clock → countdown", "The clock drops in, then a 5s countdown drops in and pushes it out the bottom. The clock doesn't come back.", clock_then_countdown),
