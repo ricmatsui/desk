@@ -2,6 +2,7 @@ use axum::{Json, Router, http::StatusCode, routing::post};
 use kameo::error::Infallible;
 use kameo::prelude::*;
 use kameo_actors::broker;
+use std::io::ErrorKind;
 
 pub struct HomeAssistant {
     broker_ref: ActorRef<broker::Broker<crate::BrokerMessage>>,
@@ -24,6 +25,9 @@ impl Actor for HomeAssistant {
         let calendar_actor_ref = actor_ref.clone();
         let message_actor_ref = actor_ref.clone();
         let heartbeat_actor_ref = actor_ref.clone();
+
+        // Bound before returning so the restarted actor owns the port once the previous one's server lets go of it
+        let listener = bind_listener().await;
 
         tokio::spawn(async move {
             let app = Router::new()
@@ -63,7 +67,6 @@ impl Actor for HomeAssistant {
                     }),
                 );
 
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:9001").await.unwrap();
             axum::serve(listener, app)
                 .with_graceful_shutdown(async move {
                     shutdown_receive.await.unwrap();
@@ -175,10 +178,13 @@ impl Message<HomeAssistantMessage> for HomeAssistant {
                     text: message.payload["text"].as_str().unwrap().to_string(),
                     effects: message.payload["effects"]
                         .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|e| e.as_str().unwrap().to_string())
-                        .collect(),
+                        .map(|effects| {
+                            effects
+                                .iter()
+                                .map(|e| e.as_str().unwrap().to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     read: message.payload["read"].as_bool().unwrap_or(false),
                     icon: message.payload["icon"].as_str().map(|i| i.to_string()),
                     ttl: message.payload["ttl"].as_u64(),
@@ -208,5 +214,25 @@ impl Message<HomeAssistantHeartbeat> for HomeAssistant {
             })
             .await
             .unwrap();
+    }
+}
+
+// The previous actor's server drains its connections after a restart, so the port can stay taken for a moment.
+// Past BIND_ATTEMPTS the panic stops the actor and RestartingManager takes over.
+const BIND_ATTEMPTS: u32 = 10;
+
+async fn bind_listener() -> tokio::net::TcpListener {
+    let mut attempt = 1;
+
+    loop {
+        match tokio::net::TcpListener::bind("0.0.0.0:9001").await {
+            Ok(listener) => return listener,
+            Err(error) if error.kind() == ErrorKind::AddrInUse && attempt < BIND_ATTEMPTS => {
+                tracing::warn!("port 9001 still in use, retrying ({attempt}/{BIND_ATTEMPTS})");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                attempt += 1;
+            }
+            Err(error) => panic!("failed to bind port 9001 ({attempt}/{BIND_ATTEMPTS}): {error}"),
+        }
     }
 }
